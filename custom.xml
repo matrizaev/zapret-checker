@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<reg:register updateTime="2016-04-06T20:00:00+03:00" updateTimeUrgently="2016-04-06T09:12:59+03:00" formatVersion="2.2" xmlns:reg="http://rsoc.ru" xmlns:tns="http://rsoc.ru">
+	<content id="347" includeTime="2012-11-18T15:17:51" entryType="1">
+		<url>
+			<![CDATA[http://www.example.com/]]>
+		</url>
+	</content>
+</reg:register>
