@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<xs:schema elementFormDefault="qualified"
+		   xmlns:xs="http://www.w3.org/2001/XMLSchema">
+	<xs:element name="zapret-checker">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="redirect" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="host" type="xs:string" />
+							<xs:choice>
+								<xs:sequence>
+									<xs:element name="http" type="redirectType" />
+									<xs:element name="dns" type="redirectType" minOccurs="0" />
+								</xs:sequence>
+								<xs:element name="dns" type="redirectType" />
+							</xs:choice>
+							<xs:element name="ipsetList" type="ipsetType" minOccurs="0" />
+							<xs:element name="iface" type="xs:string" />
+						</xs:sequence>
+						<xs:attribute name="nsLookup" type="xs:boolean" />
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="smtp" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="host" type="xs:string" />
+							<xs:element name="sender" type="emailType" />
+							<xs:element name="recipient" minOccurs="1" maxOccurs="unbounded">
+								<xs:complexType>
+									<xs:simpleContent>
+										<xs:extension base="emailType">
+											<xs:attribute name="attachments" type="xs:boolean" use="required" />
+										</xs:extension>
+									</xs:simpleContent>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="rknBlacklist" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="host" type="xs:string" />
+							<xs:element name="privateKey" type="privateKeyType" />
+							<xs:element name="cooldown">
+								<xs:complexType>
+									<xs:attribute name="positive" type="xs:positiveInteger" use="required" />
+									<xs:attribute name="negative" type="xs:positiveInteger" use="required" />
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="timestampFile" type="xs:string" minOccurs="0" />
+							<xs:element name="request">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="requestTime" type="xs:dateTime" />
+										<xs:element name="operatorName" type="xs:string" />
+										<xs:element name="inn">
+											<xs:simpleType>
+												<xs:restriction base="xs:integer">
+													<xs:minInclusive value="0" />
+													<xs:totalDigits value="10" />
+													<xs:pattern value="[0-9]{10}" />
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="ogrn">
+											<xs:simpleType>
+												<xs:restriction base="xs:integer">
+													<xs:totalDigits value="13" />
+													<xs:minInclusive value="0" />
+													<xs:pattern value="[0-9]{13}" />
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="email" type="emailType" />
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>	
+				<xs:element name="customBlacklist" type="xs:string" minOccurs="0" />
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+	<xs:complexType name="privateKeyType">
+		<xs:simpleContent>
+			<xs:extension base="xs:string">
+				<xs:attribute name="password" type="xs:string" use="required" />
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+	<xs:simpleType name="emailType">
+		<xs:restriction base="xs:string">
+			<xs:pattern value="\s*[a-zA-Z][a-zA-Z0-9_.\-]+@[a-zA-Z0-9\-]+[a-zA-Z0-9\-.]+\s*" />
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:complexType name="redirectType">
+		<xs:attribute name="queue">
+			<xs:simpleType>
+				<xs:restriction base="xs:integer">
+					<xs:minInclusive value="0" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="count">
+		   <xs:simpleType>
+				<xs:restriction base="xs:integer">
+					<xs:minInclusive value="1" />
+					<xs:maxInclusive value="8" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+	</xs:complexType>
+	<xs:complexType name="ipsetType">
+		<xs:simpleContent>
+			<xs:extension base="xs:string">
+				<xs:attribute name="nsLookup" type="xs:boolean" use="required" />
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+</xs:schema>
