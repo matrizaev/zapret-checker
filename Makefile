@@ -25,9 +25,9 @@ clean:
 	rm -rf $(TARGET) $(OBJS) zapret-configuration.h.include
 install:
 	install $(TARGET) $(PREFIX)/bin
-	mkdir -pv $(PREFIX)/bin/ $(PREFIX)/etc/$(TARGET)/
-	cp -vf $(CFG) $(PREFIX)/etc/$(TARGET)/
-	cp -vf ./$(TARGET).service /etc/systemd/system
+#	mkdir -pv $(PREFIX)/bin/ $(PREFIX)/etc/$(TARGET)/
+#	cp -vf $(CFG) $(PREFIX)/etc/$(TARGET)/
+#	cp -vf ./$(TARGET).service /etc/systemd/system
 uninstall:
 	rm -rf $(PREFIX)/bin/$(TARGET)
 	rm -rf /etc/systemd/system/$(TARGET).service
