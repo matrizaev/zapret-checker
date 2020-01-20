@@ -604,7 +604,8 @@ void PerformSOAPCommunication (TZapretContext *context)
 	/*************************************************************************
 	* Вызываем SOAP метод getLastDumpDateEx, в ответ                         *
 	* получаем getLastDumpDateExResponse                                     *
-	*************************************************************************/	
+	*************************************************************************/
+	log_info ("SOAP: getLastDumpDateEx");
 	request = GenerateSOAPMessage (context->soapContext, NULL, SOAP_METHOD_getLastDumpDateEx, &resultSize);
 	check (request != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getLastDumpDateEx]);
 	httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString (context->blacklistHost, SOAP_METHOD_getLastDumpDateEx);
@@ -633,7 +634,8 @@ void PerformSOAPCommunication (TZapretContext *context)
 	/*************************************************************************
 	* Вызываем SOAP метод sendRequest, в ответ                               *
 	* получаем sendRequestResponse                                           *
-	*************************************************************************/	
+	*************************************************************************/
+	log_info ("SOAP: sendRequest");
 	request = GenerateSOAPMessage (context->soapContext, context->requestXmlDoc, SOAP_METHOD_sendRequest, &resultSize);
 	check (request != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_sendRequest]);
 	httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString (context->blacklistHost, SOAP_METHOD_sendRequest);
@@ -660,7 +662,7 @@ void PerformSOAPCommunication (TZapretContext *context)
 	while ((repeatCount < GET_RESULT_WAITING_COUNT) && (context->soapContext->resultCode == 0) && (flagMatrixShutdown == 0) && (flagMatrixReconfigure == 0))
 	{
 		sleep (context->blacklistCooldownNegative);
-
+		log_info ("SOAP: getResult");
 		request = GenerateSOAPMessage (context->soapContext, NULL, SOAP_METHOD_getResult, &resultSize);
 		check (request != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResult]);
 		httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString (context->blacklistHost, SOAP_METHOD_getResult);
@@ -681,7 +683,6 @@ void PerformSOAPCommunication (TZapretContext *context)
 		response = NULL;
 		
 		repeatCount++;
-
 	} 
 	check (context->soapContext->resultCode == 1, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResultResponse]);
 	context->soapContext->soapResult = true;
