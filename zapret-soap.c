@@ -620,7 +620,8 @@ void PerformSOAPCommunication (TZapretContext *context)
 	/*************************************************************************
 	* Обрабатываем ответ getLastDumpDateExResponse, если обновления дампа    *
 	* реестра запрещенных сайтов не требуется, выходим.                      *
-	*************************************************************************/		
+	*************************************************************************/
+	log_info ("SOAP: getLastDumpDateExResponse");	
 	if (GetLastDumpDateResponse (context->soapContext, response, resultSize) != true)
 	{
 		check (context->soapContext->lastDumpDate != NULL && context->soapContext->lastDumpDateUrgently != NULL && context->soapContext->docVersion != NULL && context->soapContext->dumpFormatVersion != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getLastDumpDateExResponse]);
@@ -649,7 +650,8 @@ void PerformSOAPCommunication (TZapretContext *context)
 	
 	/*************************************************************************
 	* Обрабатываем ответ sendRequestResponse.                                *
-	*************************************************************************/	
+	*************************************************************************/
+	log_info ("SOAP: sendRequestResponse");
 	check (SendRequestResponse (context->soapContext, response, resultSize) == true, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_sendRequestResponse]);
 	free (response);
 	response = NULL;
@@ -676,8 +678,9 @@ void PerformSOAPCommunication (TZapretContext *context)
 		
 		
 		/*************************************************************************
-		* Обрабатываем ответ getResultResponse.                                *
-		*************************************************************************/	
+		* Обрабатываем ответ getResultResponse.                                  *
+		*************************************************************************/
+		log_info ("SOAP: getResultResponse");
 		check (GetResultResponse (context->soapContext, response, resultSize) == true, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResultResponse]);
 		free (response);
 		response = NULL;
