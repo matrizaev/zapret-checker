@@ -239,7 +239,7 @@ char *SigningPerform (void *inData, size_t inputLength, size_t *outputLength, ui
 	{
 		{ CKA_CLASS, &certificateObject, sizeof(certificateObject) },						// Класс - сертификат
 		{ CKA_TOKEN, &attributeTrue, sizeof(attributeTrue) },								// Сертификат является объектом токена
-		{ CKA_ID, keyPairId, keyPairIdLen},												// Идентификатор ключевой пары, которой соответствует сертификат
+		{ CKA_ID, keyPairId, keyPairIdLen},													// Идентификатор ключевой пары, которой соответствует сертификат
 		{ CKA_CERTIFICATE_TYPE, &certificateType, sizeof(certificateType) },				// Тип сертификата - X.509
 //		{ CKA_CERTIFICATE_CATEGORY, &tokenUserCertificate, sizeof(tokenUserCertificate)},	// Категория сертификата - пользовательский
 	};
@@ -293,7 +293,7 @@ char *SigningPerform (void *inData, size_t inputLength, size_t *outputLength, ui
 	*************************************************************************/
 
 	rv = functionList->C_GetSlotList(CK_TRUE, NULL, &slotCount);
-	check ((rv == CKR_OK) && (slotCount != 0), "There is no slot available: %s", rvToStr(rv));
+	check ((rv == CKR_OK) && (slotCount != 0), "There are no slots available: %s", rvToStr(rv));
 
 	/*************************************************************************
 	* Получить список слотов c подключенными токенами                        *
@@ -303,7 +303,7 @@ char *SigningPerform (void *inData, size_t inputLength, size_t *outputLength, ui
 	check_mem (slots);
 		
 	rv = functionList->C_GetSlotList(CK_TRUE, slots, &slotCount);
-	check ((rv == CKR_OK) || (slotCount != 0), "There is no slot available: %s", rvToStr(rv));
+	check ((rv == CKR_OK) || (slotCount != 0), "There are no slots available: %s", rvToStr(rv));
 
 	/*************************************************************************
 	* Открыть RW сессию в первом доступном слоте                             *
@@ -325,14 +325,14 @@ char *SigningPerform (void *inData, size_t inputLength, size_t *outputLength, ui
 	*************************************************************************/
 	int r = findObjects(functionList, session, privateKeyTemplate, arraysize(privateKeyTemplate),
 						&privateKeys, &keysCount);
-	check ((r == 0) && (keysCount > 0), "There is no private keys available.");
+	check ((r == 0) && (keysCount > 0), "There are no private keys available.");
 	
 	/*************************************************************************
 	* Найти сертификат на токене                                             *
 	*************************************************************************/
 	r = findObjects(functionList, session, certificateTemplate, arraysize(certificateTemplate),
 	                &certificates, &certificatesCount);
-	check (r == 0 && certificatesCount > 0, "There is no certificates available.");
+	check (r == 0 && certificatesCount > 0, "There are no certificates available.");
 	
 	/*************************************************************************
 	* Подписать данные                                                       *
