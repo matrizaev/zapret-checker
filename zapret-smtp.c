@@ -8,7 +8,7 @@
 
 #define SMTP_PAYLOAD_STRING_SUCCESSFUL    "Successful iteration."
 #define SMTP_PAYLOAD_STRING_UNSUCCESSFUL  "Unsuccessful iteration."
-#define SMTP_PAYLOAD_STRING_UNCHANGED     "Timestamp have not been changed."
+#define SMTP_PAYLOAD_STRING_UNCHANGED     "Timestamp has not changed."
 #define SMTP_TIME_FORMAT                  "%a, %d %b %Y %T %z"
 
 /*************************************************************************
@@ -44,7 +44,7 @@ static	TMemoryStruct smtpPayloadText[] =
 /*5*/	{.memory = NULL, .size = 0},
 /*6*/	{.memory = "\r\nContent-Type: multipart/mixed; boundary=frontier\r\n\r\n--frontier\r\nContent-type: text/html; charset=utf-8\r\n\r\n<!DOCTYPE html><html><head><meta charset = \"utf-8\"></head><body><h1>", .size = strlen("\r\nContent-Type: multipart/mixed; boundary=frontier\r\n\r\n--frontier\r\nContent-type: text/html; charset=utf-8\r\n\r\n<!DOCTYPE html><html><head><meta charset = \"utf-8\"></head><body><h1>")},
 /*7*/	{.memory = NULL, .size = 0},
-/*8*/	{.memory = "</h1><p><a href=\"http://vigruzki.rkn.gov.ru/docs/description_for_operators_actual.pdf\">Description for operators version: ", .size = strlen("</h1><p><a href=\"http://vigruzki.rkn.gov.ru/docs/description_for_operators_actual.pdf\">Description for operators version: ")},
+/*8*/	{.memory = "</h1><p><a href=\"http://vigruzki.rkn.gov.ru/docs/description_for_operators_actual.pdf\">ISP instructions version: ", .size = strlen("</h1><p><a href=\"http://vigruzki.rkn.gov.ru/docs/description_for_operators_actual.pdf\">ISP instructions version: ")},
 /*9*/	{.memory = NULL, .size = 0},
 /*10*/	{.memory = "</a></p><p>Request comment: ", .size = strlen("</a></p><p>Request comment: ")},
 /*11*/	{.memory = NULL, .size = 0},
