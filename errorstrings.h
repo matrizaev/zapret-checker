@@ -1,6 +1,6 @@
 #define ERROR_STR_INVALIDINPUT		"Function input is invalid."
-#define ERROR_STR_INVALIDSIGNATURE	"OpenSSL signature is invalid."
-#define ERROR_STR_INVALIDSIGNATURE2	"OpenSSL signature is invalid Error code is %lu."
+#define ERROR_STR_INVALIDSIGNATURE	"Digital signature is invalid."
+#define ERROR_STR_INVALIDSIGNATURE2	"Digital signature is invalid Error code is %lu."
 #define ERROR_STR_HASHERROR			"Hash functions error occured."
 #define ERROR_STR_STRINGLISTERROR	"String list functions error occured."
 #define ERROR_STR_ZIPERROR			"ZIP operation error: %s"
