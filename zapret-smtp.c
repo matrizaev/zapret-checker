@@ -8,7 +8,7 @@
 
 #define SMTP_PAYLOAD_STRING_SUCCESSFUL    "Successful iteration."
 #define SMTP_PAYLOAD_STRING_UNSUCCESSFUL  "Unsuccessful iteration."
-#define SMTP_PAYLOAD_STRING_UNCHANGED     "Timestamp has not changed."
+#define SMTP_PAYLOAD_STRING_UNCHANGED     "Timestamp has not been changed."
 #define SMTP_TIME_FORMAT                  "%a, %d %b %Y %T %z"
 
 /*************************************************************************

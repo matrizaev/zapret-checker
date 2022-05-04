@@ -273,7 +273,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			check (nodeAttr != NULL, ERROR_STR_INVALIDXML);
 			nodeVal = xmlNodeGetContent (node->xmlChildrenNode);
 			check (nodeVal != NULL, ERROR_STR_INVALIDXML);
-			context->privateKeyId = strdup(TrimWhiteSpaces ((char *)nodeVal));
+			context->privateKeyId = strdup((char *)nodeVal);
 			context->privateKeyPassword = strdup(TrimWhiteSpaces ((char *)nodeAttr));
 			xmlFree (nodeVal);
 			nodeVal = NULL;

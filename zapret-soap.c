@@ -120,7 +120,7 @@ bool GetLastDumpDateResponse (TSOAPContext *context, const char *soapXml, size_t
 	bool exitCode = false;
 
 	check (soapXml != NULL && context != NULL && inputLength > 0, ERROR_STR_INVALIDINPUT);
-	doc = xmlReadMemory (soapXml, inputLength, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET);
+	doc = xmlReadMemory (soapXml, inputLength, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_HUGE | XML_PARSE_COMPACT);
 	check (doc != NULL, ERROR_STR_INVALIDXML);
 	node = xmlDocGetRootElement (doc);
 	check (node != NULL, ERROR_STR_INVALIDXML);
@@ -248,7 +248,7 @@ bool SendRequestResponse (TSOAPContext *context, const char *soapXml, size_t inp
 		free (context->requestCode);
 		context->requestCode = NULL;
 	}
-	doc = xmlReadMemory (soapXml, inputLength, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET);
+	doc = xmlReadMemory (soapXml, inputLength, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_HUGE | XML_PARSE_COMPACT);
 	check (doc != NULL, ERROR_STR_INVALIDXML);
 	node = xmlDocGetRootElement (doc);
 	check (node != NULL, ERROR_STR_INVALIDXML);
@@ -345,7 +345,7 @@ bool GetResultResponse (TSOAPContext *context, const char *soapXml, size_t input
 		free (context->registerZipArchive);
 		context->registerZipArchive = NULL;
 	}
-	doc = xmlReadMemory (soapXml, inputLength, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET);
+	doc = xmlReadMemory (soapXml, inputLength, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_HUGE | XML_PARSE_COMPACT);
 	check (doc != NULL, ERROR_STR_INVALIDXML);
 	node = xmlDocGetRootElement (doc);
 	check (node != NULL, ERROR_STR_INVALIDXML);
@@ -393,11 +393,12 @@ bool GetResultResponse (TSOAPContext *context, const char *soapXml, size_t input
 		if (context->resultComment == NULL && !xmlStrcmp (node->name, BAD_CAST "resultComment"))
 		{
 			nodeVal = xmlNodeGetContent (node->xmlChildrenNode);
-			check (nodeVal != NULL, ERROR_STR_INVALIDXML);
-			context->resultComment = strdup(TrimWhiteSpaces ((char *)nodeVal));
-			check (context->resultComment != NULL, ERROR_STR_INVALIDSTRING);
-			xmlFree (nodeVal);
-			nodeVal = NULL;
+			if (nodeVal != NULL){
+				context->resultComment = strdup(TrimWhiteSpaces ((char *)nodeVal));
+				check (context->resultComment != NULL, ERROR_STR_INVALIDSTRING);
+				xmlFree (nodeVal);
+				nodeVal = NULL;
+			}
 			continue;
 		}
 		if (!xmlStrcmp (node->name, BAD_CAST "resultCode"))
@@ -412,21 +413,23 @@ bool GetResultResponse (TSOAPContext *context, const char *soapXml, size_t input
 		if (context->operatorName == NULL && !xmlStrcmp (node->name, BAD_CAST "operatorName"))
 		{
 			nodeVal = xmlNodeGetContent (node->xmlChildrenNode);
-			check (nodeVal != NULL, ERROR_STR_INVALIDXML);
-			context->operatorName = strdup(TrimWhiteSpaces ((char *)nodeVal));
-			check (context->operatorName != NULL, ERROR_STR_INVALIDSTRING);
-			xmlFree (nodeVal);
-			nodeVal = NULL;
+			if (nodeVal != NULL) {
+				context->operatorName = strdup(TrimWhiteSpaces ((char *)nodeVal));
+				check (context->operatorName != NULL, ERROR_STR_INVALIDSTRING);
+				xmlFree (nodeVal);
+				nodeVal = NULL;
+			}
 			continue;
 		}
 		if (context->operatorINN == NULL && !xmlStrcmp (node->name, BAD_CAST "inn"))
 		{
 			nodeVal = xmlNodeGetContent (node->xmlChildrenNode);
-			check (nodeVal != NULL, ERROR_STR_INVALIDXML);
-			context->operatorINN = strdup(TrimWhiteSpaces ((char *)nodeVal));
-			check (context->operatorINN != NULL, ERROR_STR_INVALIDSTRING);
-			xmlFree (nodeVal);
-			nodeVal = NULL;
+			if (nodeVal != NULL){
+				context->operatorINN = strdup(TrimWhiteSpaces ((char *)nodeVal));
+				check (context->operatorINN != NULL, ERROR_STR_INVALIDSTRING);
+				xmlFree (nodeVal);
+				nodeVal = NULL;
+			}
 		}
 	}
 	check ((context->resultResult != NULL), ERROR_STR_INVALIDXML);
