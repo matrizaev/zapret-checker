@@ -1,0 +1,6 @@
+*.o
+zapret-configuration.h.include
+*.crt
+zapret-checker
+request.xml
+
