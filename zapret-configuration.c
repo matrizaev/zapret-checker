@@ -208,11 +208,11 @@ static bool ReadSMTPConfiguration (xmlNodePtr node, TZapretContext *context)
 			check (nodeVal != NULL, ERROR_STR_INVALIDXML);
 			if (xmlStrcmp (attachments, BAD_CAST "true") == 0)
 			{
-				check ((context->smtpContext->recipients[1] = curl_slist_append (context->smtpContext->recipients[1], TrimWhiteSpaces ((char *)nodeVal))) != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
+				check ((context->smtpContext->recipients[0] = curl_slist_append (context->smtpContext->recipients[0], TrimWhiteSpaces ((char *)nodeVal))) != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
 			}
 			else
 			{
-				check ((context->smtpContext->recipients[0] = curl_slist_append (context->smtpContext->recipients[0], TrimWhiteSpaces ((char *)nodeVal))) != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
+				check ((context->smtpContext->recipients[1] = curl_slist_append (context->smtpContext->recipients[1], TrimWhiteSpaces ((char *)nodeVal))) != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
 			}
 			xmlFree (nodeVal);
 			nodeVal = NULL;

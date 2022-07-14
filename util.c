@@ -187,7 +187,7 @@ bool ValidateXmlFile2 (const char *xmlFileName, const char *schemaBuf, size_t sc
 	check ((xmlFileName != NULL) && (schemaBuf != NULL), ERROR_STR_INVALIDINPUT);
 	doc = xmlParseFile (xmlFileName);
 	check (doc != NULL, ERROR_STR_INVALIDXML);
-	schemaDoc = xmlReadMemory (schemaBuf, schemaBufLen, NULL, "UTF-8", XML_PARSE_NONET);
+	schemaDoc = xmlReadMemory (schemaBuf, schemaBufLen, NULL, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_HUGE | XML_PARSE_COMPACT);
 	check (schemaDoc != NULL, ERROR_STR_INVALIDXML);
 	parserCtxt = xmlSchemaNewDocParserCtxt (schemaDoc);
 	check (parserCtxt != NULL, ERROR_STR_INVALIDXML);

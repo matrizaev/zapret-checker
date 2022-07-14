@@ -73,10 +73,12 @@ static	TMemoryStruct smtpPayloadText[] =
 /*34*/	{.memory = "</p><p>Техническая поддержка: <a href=\"mailto:zapret-support@rkn.gov.ru\">zapret-support@rkn.gov.ru</a></p><body></html>\r\n", .size = strlen("</p><p>Техническая поддержка: <a href=\"mailto:zapret-support@rkn.gov.ru\">zapret-support@rkn.gov.ru</a></p><body></html>\r\n")},
 /*35*/	{.memory = "\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; name=\"register.zip\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"register.zip\"\r\n\r\n", .size = strlen("\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; name=\"register.zip\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"register.zip\"\r\n\r\n")},
 /*36*/	{.memory = NULL, .size = 0},
-/*37*/	{.memory = "\r\n\r\n--frontier--\r\n", .size = strlen("\r\n\r\n--frontier--\r\n")}
+/*37*/	{.memory = "\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; name=\"social.zip\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"social.zip\"\r\n\r\n", .size = strlen("\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; name=\"social.zip\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"social.zip\"\r\n\r\n")},
+/*38*/	{.memory = NULL, .size = 0},
+/*39*/	{.memory = "\r\n\r\n--frontier--\r\n", .size = strlen("\r\n\r\n--frontier--\r\n")}
 };
 
-static const size_t smtpPayloadTextCount = 38;
+static const size_t smtpPayloadTextCount = 40;
 
 
 /*************************************************************************
@@ -130,8 +132,9 @@ static size_t SMTPPayloadCallback (void *ptr, size_t size, size_t nmemb, void *u
 				data[len + 1] = '\0';
 				break;
 			}
-			if ((userp == NULL || smtpPayloadText [36].memory == NULL) && payloadIndex == 35)
-				payloadIndex = smtpPayloadTextCount - 1;
+			if ((smtpPayloadText [36].memory == NULL && payloadIndex == 35) ||
+				(smtpPayloadText [37].memory == NULL && payloadIndex == 36))
+				payloadIndex += 2;
 			if (smtpPayloadText [payloadIndex].memory != NULL)
 			{
 				data = smtpPayloadText [payloadIndex].memory;
@@ -203,6 +206,7 @@ bool UpdatePayloadText (TSMTPContext *smtpContext, TSOAPContext *soapContext)
 	smtpPayloadText[31].memory = soapContext->requestResult;
 	smtpPayloadText[33].memory = soapContext->resultResult;
 	smtpPayloadText[36].memory = soapContext->registerZipArchive;
+	smtpPayloadText[38].memory = soapContext->socialZipArchive;
 	
 	if (smtpPayloadText[1].memory != NULL)
 		smtpPayloadText[1].size =  strlen(smtpPayloadText[1].memory);
@@ -221,6 +225,11 @@ bool UpdatePayloadText (TSMTPContext *smtpContext, TSOAPContext *soapContext)
 		smtpPayloadText[36].size =  strlen(smtpPayloadText[36].memory);
 	else
 		smtpPayloadText[36].size = 0;
+
+	if (smtpPayloadText[38].memory != NULL)
+		smtpPayloadText[38].size =  strlen(smtpPayloadText[36].memory);
+	else
+		smtpPayloadText[38].size = 0;
 	
 	result = true;
 error:
@@ -255,13 +264,7 @@ void SendSMTPMessage (TSMTPContext *smtpContext, TSOAPContext *soapContext)
 			smtpPayloadText[3].memory = smtpContext->recipients[i];
 			if (i == 1)
 			{
-				curlResult = curl_easy_setopt (curlHandle, CURLOPT_READDATA, (void *)soapContext->registerZipArchive);
-				check (curlResult == CURLE_OK, ERROR_STR_LIBCURL, curl_easy_strerror (curlResult));
-			}
-			else
-			{
-				curlResult = curl_easy_setopt (curlHandle, CURLOPT_READDATA, NULL);
-				check (curlResult == CURLE_OK, ERROR_STR_LIBCURL, curl_easy_strerror (curlResult));
+				smtpPayloadText[36].memory = NULL;
 			}
 			curlResult = curl_easy_setopt (curlHandle, CURLOPT_MAIL_RCPT, smtpContext->recipients[i]);
 			check (curlResult == CURLE_OK, ERROR_STR_LIBCURL, curl_easy_strerror (curlResult));
