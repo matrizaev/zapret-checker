@@ -430,7 +430,7 @@ uint8_t *String2DNSNotation (char *str)
 	if (str == NULL)
 		return NULL;
 	size_t fullLen = strlen (str);
-	uint8_t  *result = calloc (fullLen + 1, 1);
+	uint8_t  *result = calloc (fullLen + 2, 1);
 	if (result == NULL)
 		return NULL;
 	if (*str == '.')
