@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#include <dbg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,3 +30,5 @@
 #include <math.h>
 #include <stdint.h>
 #include <dlfcn.h>
+
+#include "dbg.h"

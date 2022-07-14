@@ -1,0 +1,6 @@
+libxml2-dev
+libcurl4-openssl-dev
+libzip-dev
+libidn2-dev
+pkg-config
+libnetfilter-queue-dev
