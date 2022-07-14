@@ -3,6 +3,7 @@
 * информационных сообщений.                                              *
 *************************************************************************/
 
+#include "allheaders.h"
 #include <math.h>
 #include "zapret-checker.h"
 
@@ -227,7 +228,7 @@ bool UpdatePayloadText (TSMTPContext *smtpContext, TSOAPContext *soapContext)
 		smtpPayloadText[36].size = 0;
 
 	if (smtpPayloadText[38].memory != NULL)
-		smtpPayloadText[38].size =  strlen(smtpPayloadText[36].memory);
+		smtpPayloadText[38].size =  strlen(smtpPayloadText[38].memory);
 	else
 		smtpPayloadText[38].size = 0;
 	

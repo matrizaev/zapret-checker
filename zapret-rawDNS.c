@@ -2,7 +2,7 @@
 * Модуль обработки DNS пакетов.                                          *
 *************************************************************************/
 
-
+#include "allheaders.h"
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>

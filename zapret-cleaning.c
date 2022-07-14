@@ -2,6 +2,7 @@
 * Модуль очистки памяти.                                                 *
 *************************************************************************/
 
+#include "allheaders.h"
 #include <libnetfilter_queue/libnetfilter_queue.h>
 #include "zapret-checker.h"
 

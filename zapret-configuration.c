@@ -2,6 +2,7 @@
 * Модуль чтения конфигурации.                                            *
 *************************************************************************/
 
+#include "allheaders.h"
 #include "zapret-checker.h"
 #include "zapret-configuration.h"
 

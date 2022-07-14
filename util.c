@@ -4,6 +4,7 @@
 	http://stackoverflow.com/questions/342409/how-do-i-base64-encode-decode-in-c
 **************************************************************************************************/
 
+#include "allheaders.h"
 #include <libxml/parser.h>
 #include <libxml/xmlschemas.h>
 #include <libxml/tree.h>

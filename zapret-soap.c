@@ -35,6 +35,7 @@ start:
 	
 **************************************************************************************************/
 
+#include "allheaders.h"
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include "zapret-checker.h"
@@ -788,7 +789,7 @@ void PerformSOAPCommunication (TZapretContext *context)
 	check (httpHeaders[HTTP_HEADER_COUNT - 1] != NULL, ERROR_STR_INVALIDSTRING);
 	response = SendHTTPPost (soapService, (char *)request, httpHeaders, HTTP_HEADER_COUNT, resultSize, &resultSize);
 	check (response != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResultSocResourcesResponse]);
-	log_info ("SOAP: getResultSocResourcesResponse");
+	log_info ("SOAP: getResultSocResourcesResponse size = %zu", strlen(context->soapContext->socialZipArchive));
 	check (GetResultSocResourcesResponse(context->soapContext, response, resultSize) == true, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResultSocResourcesResponse]);
 
 error:

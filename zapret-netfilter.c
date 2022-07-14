@@ -2,7 +2,7 @@
 * Модуль фильтрации трафика.                                             *
 *************************************************************************/
 
-
+#include "allheaders.h"
 #include <libnetfilter_queue/libnetfilter_queue.h>
 #include <netdb.h>
 #include <netinet/in.h>

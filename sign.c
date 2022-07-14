@@ -1,3 +1,4 @@
+#include "allheaders.h"
 #include "rutoken/rtpkcs11.h"
 #include "sign.h"
 #include "util.h"

@@ -2,6 +2,7 @@
 * Модуль обработки HTTP пакетов.                                         *
 *************************************************************************/
 
+#include "allheaders.h"
 #include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
