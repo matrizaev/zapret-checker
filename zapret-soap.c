@@ -755,6 +755,7 @@ void PerformSOAPCommunication (TZapretContext *context)
 	*************************************************************************/		
 	while ((repeatCount < GET_RESULT_WAITING_COUNT) && (context->soapContext->resultCode == 0) && (flagMatrixShutdown == 0) && (flagMatrixReconfigure == 0))
 	{
+		log_info ("SOAP: Sleeping before results");
 		sleep (context->blacklistCooldownNegative);
 		log_info ("SOAP: getResult");
 		request = GenerateSOAPMessage (context->soapContext, NULL, SOAP_METHOD_getResult, &resultSize);
