@@ -14,6 +14,11 @@ void ClearSOAPContext(TSOAPContext *context)
 		free (context->dumpFormatVersion);
 		context->dumpFormatVersion = NULL;
 	}
+	if (context->dumpFormatVersionSocResources != NULL)
+	{
+		free (context->dumpFormatVersionSocResources);
+		context->dumpFormatVersionSocResources = NULL;
+	}
 	if (context->webServiceVersion != NULL)
 	{
 		free (context->webServiceVersion);
@@ -43,6 +48,11 @@ void ClearSOAPContext(TSOAPContext *context)
 	{
 		free (context->registerZipArchive);
 		context->registerZipArchive = NULL;
+	}
+	if (context->socialZipArchive != NULL)
+	{
+		free (context->socialZipArchive);
+		context->socialZipArchive = NULL;
 	}
 	if (context->resultResult != NULL)
 	{
@@ -132,6 +142,8 @@ void ClearZapretContext (TZapretContext *context)
 			free (context->soapContext->lastDumpDate);
 		if (context->soapContext->lastDumpDateUrgently != NULL)
 			free (context->soapContext->lastDumpDateUrgently);
+		if (context->soapContext->lastDumpDateSocResources != NULL)
+			free (context->soapContext->lastDumpDateSocResources);
 		free (context->soapContext);
 	}
 	ClearNetfilterContext (context->httpThreadsContext, context->redirectHTTPCount);

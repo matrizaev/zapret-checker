@@ -87,13 +87,16 @@ typedef struct
 {
 	char	*lastDumpDate;
 	char	*lastDumpDateUrgently;
+	char	*lastDumpDateSocResources;
 	char	*dumpFormatVersion;
+	char	*dumpFormatVersionSocResources;
 	char	*webServiceVersion;
 	char	*docVersion;
 	char	*requestCode;
 	char	*requestResult;
 	char	*requestComment;
 	char	*registerZipArchive;
+	char	*socialZipArchive;
 	char	*resultResult;
 	char	*resultComment;
 	char	*operatorName;
