@@ -44,7 +44,7 @@ start:
 /*************************************************************************
 * Шаблон SOAP службы для libCURL.                                        *
 *************************************************************************/
-#define SOAP_SERVICE_TEMPLATE "http://%s/services/OperatorRequest/"
+#define SOAP_SERVICE_TEMPLATE "https://%s/services/OperatorRequest/"
 #define SOAP_ACTION_TEMPLATE "SOAPAction: \"" SOAP_SERVICE_TEMPLATE "%s\""
 
 /*************************************************************************
@@ -703,7 +703,7 @@ void PerformSOAPCommunication (TZapretContext *context)
 	httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString (context->blacklistHost, SOAP_METHOD_getLastDumpDateEx);
 	check (httpHeaders[HTTP_HEADER_COUNT - 1] != NULL, ERROR_STR_INVALIDSTRING);
 	response = SendHTTPPost (soapService, (char *)request, httpHeaders, HTTP_HEADER_COUNT, resultSize, &resultSize);
-	check (response != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getLastDumpDateExResponse]);
+	check (response != NULL && resultSize > 0, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getLastDumpDateExResponse]);
 	free (httpHeaders[HTTP_HEADER_COUNT - 1]);
 	httpHeaders[HTTP_HEADER_COUNT - 1] = NULL;
 	xmlFree (request);
