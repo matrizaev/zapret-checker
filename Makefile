@@ -32,3 +32,7 @@ uninstall:
 	rm -rf $(PREFIX)/bin/$(TARGET)
 	rm -rf /etc/systemd/system/$(TARGET).service
 	rm -rf /etc/$(TARGET)/
+
+
+rutoken-sign: rutoken-sign.c sign.c sign.h
+	$(CC) rutoken-sign.c sign.c -ldl -o rutoken-sign
