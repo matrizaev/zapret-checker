@@ -542,7 +542,7 @@ xmlChar *GenerateSOAPMessage (TSOAPContext *context, xmlDocPtr requestXmlDoc, co
 	xmlNsPtr soapNs = NULL, tnsNs = NULL, xsiNs = NULL, xsdNs = NULL, wsdlNs = NULL, soapencNs = NULL;
 	xmlChar *result = NULL, *requestXml = NULL;
 	char *requestXmlBase64 = NULL;
-	char *signature = NULL;
+	char *signature = NULL, *signatureBase64 = NULL;
 
 	check (context != NULL && outputLength != NULL, ERROR_STR_INVALIDINPUT);
 	doc = xmlNewDoc (BAD_CAST "1.0");
@@ -586,6 +586,10 @@ xmlChar *GenerateSOAPMessage (TSOAPContext *context, xmlDocPtr requestXmlDoc, co
 		check (requestXml != NULL, ERROR_STR_INVALIDXML);
 		signature = SigningPerform ((char *)requestXml, requestLen, &signatureLen, (uint8_t *)context->privateKeyPassword, strlen(context->privateKeyPassword), (uint8_t *)context->privateKeyId, strlen(context->privateKeyId), 0);
 		check (signature != NULL, ERROR_STR_INVALIDSIGNATURE);
+
+		signatureBase64 = Base64Encode ((char *)signature, signatureLen, &signatureLen);
+		check (signatureBase64 != NULL, ERROR_STR_INVALIDBASE64);
+
 		requestXmlBase64 = Base64Encode ((char *)requestXml, requestLen, &requestLen);
 		check (requestXmlBase64 != NULL, ERROR_STR_INVALIDBASE64);
 		xmlNodeSetContentLen (chldNode, BAD_CAST requestXmlBase64, requestLen);
@@ -596,9 +600,11 @@ xmlChar *GenerateSOAPMessage (TSOAPContext *context, xmlDocPtr requestXmlDoc, co
 		chldNode = xmlNewChild (rootNode, NULL, BAD_CAST "signatureFile", NULL );
 		check (chldNode != NULL, ERROR_STR_INVALIDXML);
 		check (xmlNewNsProp (chldNode, xsiNs, BAD_CAST "type", BAD_CAST "xsd:base64Binary") != NULL, ERROR_STR_INVALIDXML);
-		xmlNodeSetContentLen (chldNode, BAD_CAST signature, signatureLen);
+		xmlNodeSetContentLen (chldNode, BAD_CAST signatureBase64, signatureLen);
 		free (signature);
 		signature = NULL;
+		free (signatureBase64);
+		signatureBase64 = NULL;
 		chldNode = xmlNewChild (rootNode, NULL, BAD_CAST "dumpFormatVersion", NULL );
 		check (chldNode != NULL, ERROR_STR_INVALIDXML);
 		check (xmlNewNsProp (chldNode, xsiNs, BAD_CAST "type", BAD_CAST "xsd:string") != NULL, ERROR_STR_INVALIDXML);
@@ -620,6 +626,8 @@ xmlChar *GenerateSOAPMessage (TSOAPContext *context, xmlDocPtr requestXmlDoc, co
 error:
 	if (signature != NULL)
 		free (signature);
+	if (signatureBase64 != NULL)
+		free (signatureBase64);
 	if (requestXmlBase64 != NULL)
 		free (requestXmlBase64);
 	if (requestXml != NULL)

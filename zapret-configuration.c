@@ -367,7 +367,7 @@ bool ReadZapretConfiguration (TZapretContext *context)
 	/*************************************************************************
 	* Цикл чтения и обработки узлов xml-файла конфигурации.                  *
 	*************************************************************************/
-	doc = xmlReadFile (DAEMON_CONFIG_FILE, "UTF-8", XML_PARSE_NOBLANKS | XML_PARSE_NONET);
+	doc = xmlReadFile (DAEMON_CONFIG_FILE, "windows-1251", XML_PARSE_NOBLANKS | XML_PARSE_NONET);
 	check (doc != NULL, ERROR_STR_INVALIDXML);
 	docNode = xmlDocGetRootElement (doc);
 	check (docNode != NULL, ERROR_STR_INVALIDXML);

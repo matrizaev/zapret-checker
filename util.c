@@ -351,6 +351,8 @@ void *SendHTTPPost (const char *url, const void *payload, char *httpHeaders[], s
 
 	TMemoryStruct buffer = {.memory = NULL, .size = 0};
 	struct curl_slist *headerList = NULL;
+	// puts("Request:");
+	// printf("%.*s\n", (int)inputLength, payload);
 	
 	check (url != NULL && outputLength != NULL && inputLength > 0, ERROR_STR_INVALIDINPUT);
 	buffer.memory = malloc (1);
@@ -393,12 +395,18 @@ void *SendHTTPPost (const char *url, const void *payload, char *httpHeaders[], s
 	curl_slist_free_all (headerList);
 	curl_easy_cleanup (curlHandle);
 	*outputLength = buffer.size;
+	// puts("Response:");
+	// printf("%.*s\n", (int)buffer.size, buffer.memory);
 	return buffer.memory;
 error:
 	if (headerList != NULL)
 		curl_slist_free_all (headerList);
-	if (buffer.memory != NULL)
+	if (buffer.memory != NULL) {
+		// puts("Response:");
+		// printf("%.*s\n", (int)buffer.size, buffer.memory);
 		free (buffer.memory);
+	}
+
 	if (curlHandle != NULL)
 		curl_easy_cleanup (curlHandle);
 	return NULL;
