@@ -584,7 +584,7 @@ xmlChar *GenerateSOAPMessage (TSOAPContext *context, xmlDocPtr requestXmlDoc, co
 		check (xmlNewNsProp (chldNode, xsiNs, BAD_CAST "type", BAD_CAST "xsd:base64Binary") != NULL, ERROR_STR_INVALIDXML);
 		requestXml = GenerateRequestXml (requestXmlDoc, &requestLen);
 		check (requestXml != NULL, ERROR_STR_INVALIDXML);
-		signature = SigningPerform ((char *)requestXml, requestLen, &signatureLen, (uint8_t *)context->privateKeyPassword, strlen(context->privateKeyPassword), (uint8_t *)context->privateKeyId, strlen(context->privateKeyId));
+		signature = SigningPerform ((char *)requestXml, requestLen, &signatureLen, (uint8_t *)context->privateKeyPassword, strlen(context->privateKeyPassword), (uint8_t *)context->privateKeyId, strlen(context->privateKeyId), 0);
 		check (signature != NULL, ERROR_STR_INVALIDSIGNATURE);
 		requestXmlBase64 = Base64Encode ((char *)requestXml, requestLen, &requestLen);
 		check (requestXmlBase64 != NULL, ERROR_STR_INVALIDBASE64);
