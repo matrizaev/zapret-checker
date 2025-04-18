@@ -1,9 +1,9 @@
 [Unit]
 Description=Zapret-checker daemon downloads list of blocked websites.
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Environment='http_proxy=http://proxy.orene.ru:3128' 'HTTP_PROXY=http://proxy.orene.ru:3128'
 ExecStart=/bin/zapret-checker
 ExecReload=/bin/kill -HUP $MAINPID
 ExecStop=/bin/kill -TERM $MAINPID
