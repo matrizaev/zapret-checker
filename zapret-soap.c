@@ -584,7 +584,7 @@ xmlChar *GenerateSOAPMessage (TSOAPContext *context, xmlDocPtr requestXmlDoc, co
 		check (xmlNewNsProp (chldNode, xsiNs, BAD_CAST "type", BAD_CAST "xsd:base64Binary") != NULL, ERROR_STR_INVALIDXML);
 		requestXml = GenerateRequestXml (requestXmlDoc, &requestLen);
 		check (requestXml != NULL, ERROR_STR_INVALIDXML);
-		signature = SigningPerform ((char *)requestXml, requestLen, &signatureLen, (uint8_t *)context->privateKeyPassword, strlen(context->privateKeyPassword), (uint8_t *)context->privateKeyId, strlen(context->privateKeyId), 0);
+		signature = SigningPerform ((char *)requestXml, requestLen, &signatureLen, (uint8_t *)context->privateKeyPassword, strlen(context->privateKeyPassword), (uint8_t *)context->privateKeyId, context->privateKeyIdLen, 0);
 		check (signature != NULL, ERROR_STR_INVALIDSIGNATURE);
 
 		signatureBase64 = Base64Encode ((char *)signature, signatureLen, &signatureLen);
@@ -692,6 +692,7 @@ void PerformSOAPCommunication (TZapretContext *context)
 	context->soapContext->soapResult = false;
 	context->soapContext->resultCode = 0;
 	context->soapContext->privateKeyId = context->privateKeyId;
+	context->soapContext->privateKeyIdLen = context->privateKeyIdLen;
 	context->soapContext->privateKeyPassword = context->privateKeyPassword;
 	
 	/*************************************************************************

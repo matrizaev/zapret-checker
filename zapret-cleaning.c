@@ -78,10 +78,11 @@ void ClearSOAPContext(TSOAPContext *context)
 	if (context->privateKeyId != NULL)
 	{
 		context->privateKeyId = NULL;
+		context->privateKeyIdLen = 0;
 	}
 	if (context->privateKeyPassword != NULL)
 	{
-		context->privateKeyId = NULL;
+		context->privateKeyPassword = NULL;
 	}
 	context->soapResult = false;
 	context->resultCode = 0;
@@ -182,6 +183,7 @@ void ClearZapretContext (TZapretContext *context)
 	if (context->privateKeyId != NULL)
 	{
 		free (context->privateKeyId);
+		context->privateKeyIdLen = 0;
 	}
 	if (context->privateKeyPassword != NULL)
 	{

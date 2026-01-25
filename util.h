@@ -23,3 +23,4 @@ extern void FillIPHeader (struct iphdr *ipHdr, uint32_t clientIP, uint32_t serve
 extern void *SendHTTPPost (const char *url, const void *payload, char *httpHeaders[], size_t httpHeadersCount, size_t inputLength, size_t *outputLength);
 extern bool DNSNotation2String (uint8_t *str);
 extern uint8_t *String2DNSNotation (char *str);
+extern int hex_to_bytes(const char *hex, unsigned char *out, size_t *out_len);

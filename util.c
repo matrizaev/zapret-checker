@@ -466,3 +466,46 @@ uint8_t *String2DNSNotation (char *str)
 	*dotPosition = len;
 	return result;
 }
+
+static int hex_value(char c) {
+    if ('0' <= c && c <= '9') return c - '0';
+    if ('a' <= c && c <= 'f') return c - 'a' + 10;
+    if ('A' <= c && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/*
+ * Replicates: echo "<hex>" | xxd -r -p
+ *
+ * hex     : null-terminated hex string
+ * out     : output buffer
+ * out_len : receives number of bytes written
+ *
+ * Returns 0 on success, -1 on error.
+ */
+int hex_to_bytes(const char *hex, unsigned char *out, size_t *out_len) {
+    size_t len = 0;
+
+    while (*hex) {
+        while (isspace((unsigned char)*hex)) {
+            hex++;  // skip whitespace like xxd -p
+        }
+
+        if (!hex[0] || !hex[1]) {
+            return -1; // odd number of hex digits
+        }
+
+        int hi = hex_value(hex[0]);
+        int lo = hex_value(hex[1]);
+
+        if (hi < 0 || lo < 0) {
+            return -1; // invalid hex
+        }
+
+        out[len++] = (unsigned char)((hi << 4) | lo);
+        hex += 2;
+    }
+
+    *out_len = len;
+    return 0;
+}

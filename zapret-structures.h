@@ -104,6 +104,7 @@ typedef struct
 	int		resultCode;
 	bool	soapResult;
 	char	*privateKeyId;
+	size_t  privateKeyIdLen;
 	char	*privateKeyPassword;
 } TSOAPContext;
 
@@ -120,6 +121,7 @@ typedef struct
 	char	*timestampFile;
 	char	*customBlacklist;
 	char	*privateKeyId;
+	size_t  privateKeyIdLen;
 	char	*privateKeyPassword;
 	TSOAPContext		*soapContext;
 	TSMTPContext		*smtpContext;
