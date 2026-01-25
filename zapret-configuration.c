@@ -49,6 +49,7 @@ static bool ReadRedirectConfiguration (xmlNodePtr node, TZapretContext *context)
 			check (context->redirectHost != NULL, ERROR_STR_INVALIDSTRING);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read redirect host configuration.");
 			continue;
 		}
 		
@@ -66,6 +67,7 @@ static bool ReadRedirectConfiguration (xmlNodePtr node, TZapretContext *context)
 			context->redirectHTTPCount = atoi ((const char *)nodeVal);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read HTTP filtering threads configuration.");
 			continue;
 		}
 		
@@ -82,7 +84,8 @@ static bool ReadRedirectConfiguration (xmlNodePtr node, TZapretContext *context)
 			nodeVal = xmlGetProp (node, BAD_CAST "count");
 			context->redirectDNSCount = atoi ((const char *)nodeVal);
 			xmlFree (nodeVal);
-			nodeVal = NULL;			
+			nodeVal = NULL;
+			log_info("Successfully read DNS filtering threads configuration.");
 			continue;
 			
 		}
@@ -109,6 +112,7 @@ static bool ReadRedirectConfiguration (xmlNodePtr node, TZapretContext *context)
 				context->redirectNSLookup = false;
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read IPSET list configuration.");
 			continue;
 		}
 		
@@ -124,6 +128,7 @@ static bool ReadRedirectConfiguration (xmlNodePtr node, TZapretContext *context)
 			check (context->redirectIface != NULL, ERROR_STR_INVALIDSTRING);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read redirect interface configuration.");
 		}
 	}	
 	if (context->redirectDNSCount > 0)
@@ -181,6 +186,7 @@ static bool ReadSMTPConfiguration (xmlNodePtr node, TZapretContext *context)
 			check (sprintf (context->smtpContext->smtpHost, SMTP_SERVICE_TEMPLATE, TrimWhiteSpaces ((char *)nodeVal)) > 0, ERROR_STR_INVALIDSTRING);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read SMTP host configuration.");
 			continue;
 		}
 		
@@ -195,6 +201,7 @@ static bool ReadSMTPConfiguration (xmlNodePtr node, TZapretContext *context)
 			check (context->smtpContext->smtpSender != NULL, ERROR_STR_INVALIDSTRING);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read SMTP sender configuration.");
 			continue;
 		}
 		/*************************************************************************
@@ -219,6 +226,7 @@ static bool ReadSMTPConfiguration (xmlNodePtr node, TZapretContext *context)
 			nodeVal = NULL;
 			xmlFree (attachments);
 			attachments = NULL;
+			log_info("Successfully read SMTP recipient configuration.");
 		}
 	}
 	result = true;
@@ -262,6 +270,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			check (context->blacklistHost != NULL, ERROR_STR_INVALIDSTRING);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read RKN blacklist host configuration.");
 			continue;
 		}
 		/*************************************************************************
@@ -283,6 +292,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			nodeVal = NULL;
 			xmlFree (nodeAttr);
 			nodeAttr = NULL;
+			log_info("Successfully read RKN blacklist private key configuration.");
 			continue;
 		}
 		
@@ -300,6 +310,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			context->blacklistCooldownNegative = atoi ((const char *)nodeVal);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read RKN blacklist cooldown configuration.");
 			continue;
 		}
 		
@@ -320,6 +331,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			check (context->timestampFile != NULL, ERROR_STR_INVALIDSTRING);
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read RKN blacklist timestamp file configuration.");
 			continue;
 		}
 		
@@ -334,6 +346,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			nodeChld = xmlDocCopyNodeList (context->requestXmlDoc, node);
 			check (nodeChld != NULL, ERROR_STR_INVALIDXML);
 			xmlDocSetRootElement (context->requestXmlDoc, nodeChld);
+			log_info("Successfully read SOAP request configuration.");
 		}
 	}
 	result = true;
@@ -426,6 +439,7 @@ bool ReadZapretConfiguration (TZapretContext *context)
 			}
 			xmlFree (nodeVal);
 			nodeVal = NULL;
+			log_info("Successfully read custom blacklist configuration.");
 		}
 	}
 	result = true;
