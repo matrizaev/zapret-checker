@@ -284,8 +284,9 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			nodeVal = xmlNodeGetContent (node->xmlChildrenNode);
 			check (nodeVal != NULL, ERROR_STR_INVALIDXML);
 
-			context->privateKeyId = calloc(strlen(nodeVal) + 1, sizeof(char));
+			context->privateKeyId = calloc(strlen((char *)nodeVal) + 1, sizeof(char));
 			check_mem(context->privateKeyId);
+			context->privateKeyIdLen = 0;
 			check(hex_to_bytes((char *)nodeVal, context->privateKeyId, &context->privateKeyIdLen) == 0 && context->privateKeyIdLen > 0, ERROR_STR_INVALIDSTRING);
 			context->privateKeyPassword = strdup(TrimWhiteSpaces ((char *)nodeAttr));
 			xmlFree (nodeVal);
@@ -293,6 +294,7 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			xmlFree (nodeAttr);
 			nodeAttr = NULL;
 			log_info("Successfully read RKN blacklist private key configuration.");
+			log_info("Private Key ID: %s", context->privateKeyId);
 			continue;
 		}
 		
