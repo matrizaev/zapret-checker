@@ -294,7 +294,6 @@ static bool ReadBlacklistConfiguration (xmlNodePtr node, TZapretContext *context
 			xmlFree (nodeAttr);
 			nodeAttr = NULL;
 			log_info("Successfully read RKN blacklist private key configuration.");
-			log_info("Private Key ID: %s", context->privateKeyId);
 			continue;
 		}
 		

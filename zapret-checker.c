@@ -314,7 +314,13 @@ int main ()
 
 		/*************************************************************************
 		* Если возможно, обращаемся к серверу РосКомНадзора.                     *
-		*************************************************************************/	
+		*************************************************************************/
+		if (context.blacklistHost == NULL ) {
+			log_info("context.blacklistHost == NULL");
+		}
+		if (context.requestXmlDoc == NULL) {
+			log_info("context.context.requestXmlDoc == NULL");
+		}
 		if (context.blacklistHost != NULL && context.requestXmlDoc != NULL)
 		{
 
