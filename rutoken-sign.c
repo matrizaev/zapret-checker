@@ -60,7 +60,8 @@ int main(int argc, char *argv[]) {
   input_file = fopen(file_name, "rb");
   check(input_file, "Could not open file %s", file_name);
 
-  size_t signature_name_size = strlen(file_name) + 5;
+  /* Five characters for ".sign", plus one for the terminating null byte. */
+  size_t signature_name_size = strlen(file_name) + strlen(".sign") + 1;
   signature_name = calloc(signature_name_size, sizeof(char));
   check_mem(signature_name);
   check(snprintf(signature_name, signature_name_size, "%s.sign", file_name) ==
@@ -83,7 +84,7 @@ int main(int argc, char *argv[]) {
   signature =
       SigningPerform(buffer, input_file_size, &signature_size, user_pin,
                      strlen(user_pin), key_pair_id, key_pair_id_length, slot);
-  check_mem(signature);
+  check(signature != NULL, "Could not sign the input file");
   check(signature_size > 0, "Could not sign the input file");
 
   signature_file = fopen(signature_name, "wb");
