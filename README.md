@@ -8,8 +8,25 @@ Written by Matrizaev Vyacheslav.
 
 `download_blacklists.py` performs the same SOAP exchange as the daemon and
 saves the two returned XML documents as `blacklist.xml` and `social.xml`.
-It reads the SOAP host, operator request, Rutoken PIN, and private-key ID from
-the daemon's `zapret-checker.xml` configuration:
+
+To submit an existing request and its detached PKCS#7 signature without a
+configuration file or connected Rutoken:
+
+```sh
+python3 download_blacklists.py \
+  --host vigruzki.rkn.gov.ru \
+  --request-file request.xml \
+  --signature-file request.xml.sign \
+  --output-dir .
+```
+
+The request is sent byte-for-byte and its `requestTime` is not updated, because
+changing the XML would invalidate the signature. The signature must belong to
+that exact file, and the service may reject requests with an old timestamp.
+
+Alternatively, the script can create and sign a fresh request using the SOAP
+host, operator request, Rutoken PIN, and private-key ID from the daemon's
+`zapret-checker.xml` configuration:
 
 ```sh
 python3 download_blacklists.py \

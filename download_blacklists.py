@@ -212,6 +212,23 @@ def sign_with_rutoken(
         return signature
 
 
+def load_presigned_request(request_path: Path, signature_path: Path) -> tuple[bytes, bytes]:
+    try:
+        request_bytes = request_path.read_bytes()
+        signature = signature_path.read_bytes()
+    except OSError as exc:
+        raise SoapError(f"cannot read pre-signed request: {exc}") from exc
+    if not request_bytes:
+        raise SoapError(f"operator request is empty: {request_path}")
+    if not signature:
+        raise SoapError(f"detached signature is empty: {signature_path}")
+    try:
+        ET.fromstring(request_bytes)
+    except ET.ParseError as exc:
+        raise SoapError(f"{request_path} is not valid XML: {exc}") from exc
+    return request_bytes, signature
+
+
 def save_xml_archive(encoded_archive: str, destination: Path) -> None:
     try:
         compact_archive = "".join(encoded_archive.split())
@@ -252,14 +269,33 @@ def save_xml_archive(encoded_archive: str, destination: Path) -> None:
 
 
 def download(args: argparse.Namespace) -> None:
-    host, request_template, config_key_id, config_pin = load_configuration(args.config)
-    host = args.host or host
-    key_id = args.key_id or config_key_id
-    pin = args.pin or config_pin
-    if not key_id:
-        raise SoapError("private key ID is missing (use --key-id or configure privateKey)")
-    if pin is None:
-        pin = getpass.getpass("Rutoken PIN: ")
+    if args.request_file is not None:
+        host = args.host
+        request_bytes, signature = load_presigned_request(
+            args.request_file,
+            args.signature_file,
+        )
+        LOG.info(
+            "Using pre-signed request %s without modifying its requestTime",
+            args.request_file,
+        )
+    else:
+        host, request_template, config_key_id, config_pin = load_configuration(args.config)
+        host = args.host or host
+        key_id = args.key_id or config_key_id
+        pin = args.pin or config_pin
+        if not key_id:
+            raise SoapError("private key ID is missing (use --key-id or configure privateKey)")
+        if pin is None:
+            pin = getpass.getpass("Rutoken PIN: ")
+        request_bytes = build_operator_request(request_template)
+        signature = sign_with_rutoken(
+            request_bytes,
+            args.signer.resolve(),
+            pin,
+            key_id,
+            args.slot,
+        )
 
     client = SoapClient(host, args.timeout)
     metadata = response_element(
@@ -268,14 +304,6 @@ def download(args: argparse.Namespace) -> None:
     )
     dump_format = child_text(metadata, "dumpFormatVersion")
 
-    request_bytes = build_operator_request(request_template)
-    signature = sign_with_rutoken(
-        request_bytes,
-        args.signer.resolve(),
-        pin,
-        key_id,
-        args.slot,
-    )
     submitted = response_element(
         client.call(
             "sendRequest",
@@ -344,9 +372,22 @@ def parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         default=Path("zapret-checker.xml"),
-        help="zapret-checker XML configuration (default: %(default)s)",
+        help="configuration used when --request-file is omitted (default: %(default)s)",
     )
-    result.add_argument("--host", help="override the SOAP host from the configuration")
+    result.add_argument(
+        "--host",
+        help="SOAP host; required with --request-file, otherwise overrides the config",
+    )
+    result.add_argument(
+        "--request-file",
+        type=Path,
+        help="pre-signed operator request XML; requires --signature-file and --host",
+    )
+    result.add_argument(
+        "--signature-file",
+        type=Path,
+        help="detached PKCS#7 signature for --request-file",
+    )
     result.add_argument(
         "--signer",
         type=Path,
@@ -390,6 +431,10 @@ def main() -> int:
     )
     if args.slot < 0 or args.poll_count < 1 or args.poll_interval < 0:
         parser().error("slot and poll interval must be non-negative; poll count must be positive")
+    if (args.request_file is None) != (args.signature_file is None):
+        parser().error("--request-file and --signature-file must be used together")
+    if args.request_file is not None and not args.host:
+        parser().error("--host is required with --request-file")
     try:
         download(args)
     except (SoapError, OSError) as exc:
