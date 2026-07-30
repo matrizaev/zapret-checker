@@ -6,6 +6,10 @@ zapret-download
 request.xml
 rutoken-sign
 /tests/test_core
+/tests/test_core-sanitize
+/tests/test_soap
+/tests/test_soap-sanitize
+/zapret-soap-capture/
 .vscode/
 request.xml
 request.xml.sign

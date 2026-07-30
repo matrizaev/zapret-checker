@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Body>
+    <ns1:getResultResponse xmlns:ns1="urn:zapret-checker:test">
+      <result> false </result>
+      <resultComment> synthetic result is pending </resultComment>
+      <resultCode>0</resultCode>
+    </ns1:getResultResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Body>
+    <ns1:getResultResponse xmlns:ns1="urn:zapret-checker:test">
+      <result>true</result>
+      <registerZipArchive> U0FOSVRJWkVEX1NPQ0lBTF9BUkNISVZF </registerZipArchive>
+      <resultCode>1</resultCode>
+      <dumpFormatVersion>test-social-format-3</dumpFormatVersion>
+      <operatorName>Synthetic Operator</operatorName>
+      <inn>0000000000</inn>
+    </ns1:getResultResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

@@ -2,6 +2,9 @@ TARGET = zapret-checker
 DOWNLOAD_TARGET = zapret-download
 SIGN_TARGET = rutoken-sign
 TEST_TARGET = tests/test_core
+SOAP_TEST_TARGET = tests/test_soap
+TEST_SANITIZER_TARGET = tests/test_core-sanitize
+SOAP_TEST_SANITIZER_TARGET = tests/test_soap-sanitize
 PREFIX ?=
 SRCS = zapret-checker.c zapret-soap.c zapret-smtp.c zapret-configuration.c zapret-process.c zapret-netfilter.c zapret-rawHTTP.c zapret-rawDNS.c zapret-cleaning.c util.c sign.c pfhash.c
 CFG = zapret-checker.xml custom.xml
@@ -12,9 +15,10 @@ LDFLAGS_LOCAL = -g -lnetfilter_queue `xml2-config --libs` `curl-config --libs` `
 DOWNLOAD_LDFLAGS = `xml2-config --libs` `curl-config --libs` `pkg-config --libs libzip` -ldl -lidn2
 TEST_CFLAGS = -g -O0 -Wall -Wextra -std=gnu99 -I. `xml2-config --cflags` `curl-config --cflags`
 TEST_LDFLAGS = `xml2-config --libs` `curl-config --libs`
+SANITIZER_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
 CC = gcc
 
-.PHONY: all test clean install uninstall
+.PHONY: all test test-sanitize clean install uninstall
 
 all: $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET)
 
@@ -32,14 +36,28 @@ zapret-configuration.h.include: zapret-checker.xsd
 %.o: %.c
 	$(CC) -c $(CFLAGS_LOCAL) $< -o $@
 
-test: $(TEST_TARGET)
+test: $(TEST_TARGET) $(SOAP_TEST_TARGET)
 	./$(TEST_TARGET)
+	./$(SOAP_TEST_TARGET)
 
 $(TEST_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) -o $(TEST_TARGET)
 
+$(SOAP_TEST_TARGET): tests/test_soap.c tests/fixtures/soap/README.md tests/fixtures/soap/get-last-dump-date-response.xml tests/fixtures/soap/send-request-response.xml tests/fixtures/soap/get-result-pending-response.xml tests/fixtures/soap/get-result-complete-response.xml tests/fixtures/soap/get-social-result-response.xml tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-soap.c zapret-checker.h zapret-structures.h util.c util.h sign.c sign.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) tests/test_soap.c tests/vendor/munit/munit.c zapret-soap.c util.c sign.c $(TEST_LDFLAGS) -ldl -o $(SOAP_TEST_TARGET)
+
+test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET)
+	./$(TEST_SANITIZER_TARGET)
+	./$(SOAP_TEST_SANITIZER_TARGET)
+
+$(TEST_SANITIZER_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) $(SANITIZER_FLAGS) -o $(TEST_SANITIZER_TARGET)
+
+$(SOAP_TEST_SANITIZER_TARGET): tests/test_soap.c tests/fixtures/soap/README.md tests/fixtures/soap/get-last-dump-date-response.xml tests/fixtures/soap/send-request-response.xml tests/fixtures/soap/get-result-pending-response.xml tests/fixtures/soap/get-result-complete-response.xml tests/fixtures/soap/get-social-result-response.xml tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-soap.c zapret-checker.h zapret-structures.h util.c util.h sign.c sign.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_soap.c tests/vendor/munit/munit.c zapret-soap.c util.c sign.c $(TEST_LDFLAGS) -ldl $(SANITIZER_FLAGS) -o $(SOAP_TEST_SANITIZER_TARGET)
+
 clean:
-	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(TEST_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
+	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
 
 install:
 	install $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(PREFIX)/bin

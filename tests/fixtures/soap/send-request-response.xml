@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Body>
+    <ns1:sendRequestResponse xmlns:ns1="urn:zapret-checker:test">
+      <result> true </result>
+      <resultComment> synthetic request accepted </resultComment>
+      <code> TEST-REQUEST-CODE </code>
+    </ns1:sendRequestResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

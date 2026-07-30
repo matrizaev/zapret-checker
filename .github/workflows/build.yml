@@ -15,9 +15,6 @@ jobs:
         os:
           - ubuntu-22.04
           - ubuntu-24.04
-        target:
-          - all
-          - dev
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -29,12 +26,14 @@ jobs:
             libcurl4-openssl-dev libidn2-dev libnetfilter-queue-dev \
             libxml2-dev libzip-dev
       - name: Build all binaries
-        run: make "${{ matrix.target }}"
+        run: make all
       - name: Check build outputs
         run: |
           test -x zapret-checker
           test -x zapret-download
           test -x rutoken-sign
+      - name: Run unit tests
+        run: make test
 
   sanitizers:
     runs-on: ubuntu-24.04
@@ -47,10 +46,5 @@ jobs:
             build-essential pkg-config xxd \
             libcurl4-openssl-dev libidn2-dev libnetfilter-queue-dev \
             libxml2-dev libzip-dev
-      - name: Build all binaries with sanitizers
-        run: make sanitize
-      - name: Check build outputs
-        run: |
-          test -x zapret-checker
-          test -x zapret-download
-          test -x rutoken-sign
+      - name: Run unit tests with AddressSanitizer and UBSan
+        run: make test-sanitize
