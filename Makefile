@@ -1,5 +1,6 @@
 TARGET = zapret-checker
 DOWNLOAD_TARGET = zapret-download
+SIGN_TARGET = rutoken-sign
 PREFIX ?=
 SRCS = zapret-checker.c zapret-soap.c zapret-smtp.c zapret-configuration.c zapret-process.c zapret-netfilter.c zapret-rawHTTP.c zapret-rawDNS.c zapret-cleaning.c util.c sign.c pfhash.c
 CFG = zapret-checker.xml custom.xml
@@ -12,7 +13,7 @@ CC = gcc
 
 .PHONY: all clean install uninstall
 
-all: $(TARGET) $(DOWNLOAD_TARGET)
+all: $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET)
 
 $(TARGET): zapret-configuration.h $(OBJS)
 	$(CC) $(OBJS) $(LDFLAGS_LOCAL) -o $(TARGET)
@@ -29,10 +30,10 @@ zapret-configuration.h.include: zapret-checker.xsd
 	$(CC) -c $(CFLAGS_LOCAL) $< -o $@
 
 clean:
-	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
+	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
 
 install:
-	install $(TARGET) $(DOWNLOAD_TARGET) $(PREFIX)/bin
+	install $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(PREFIX)/bin
 #	mkdir -pv $(PREFIX)/bin/ $(PREFIX)/etc/$(TARGET)/
 #	cp -vf $(CFG) $(PREFIX)/etc/$(TARGET)/
 #	cp -vf ./$(TARGET).service /etc/systemd/system
@@ -40,8 +41,9 @@ install:
 uninstall:
 	rm -rf $(PREFIX)/bin/$(TARGET)
 	rm -rf $(PREFIX)/bin/$(DOWNLOAD_TARGET)
+	rm -rf $(PREFIX)/bin/$(SIGN_TARGET)
 	rm -rf /etc/systemd/system/$(TARGET).service
 	rm -rf /etc/$(TARGET)/
 
-rutoken-sign: rutoken-sign.c sign.c sign.h
-	$(CC) rutoken-sign.c sign.c -ldl -o rutoken-sign
+$(SIGN_TARGET): rutoken-sign.c sign.c sign.h
+	$(CC) rutoken-sign.c sign.c -ldl -o $(SIGN_TARGET)
