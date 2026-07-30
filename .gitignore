@@ -2,6 +2,12 @@
 zapret-configuration.h.include
 *.crt
 zapret-checker
+zapret-download
 request.xml
 rutoken-sign
 .vscode/
+request.xml
+request.xml.sign
+blacklist.xml
+social.xml
+zapret-checker.xml
