@@ -1,6 +1,7 @@
 TARGET = zapret-checker
 DOWNLOAD_TARGET = zapret-download
 SIGN_TARGET = rutoken-sign
+TEST_TARGET = tests/test_core
 PREFIX ?=
 SRCS = zapret-checker.c zapret-soap.c zapret-smtp.c zapret-configuration.c zapret-process.c zapret-netfilter.c zapret-rawHTTP.c zapret-rawDNS.c zapret-cleaning.c util.c sign.c pfhash.c
 CFG = zapret-checker.xml custom.xml
@@ -9,9 +10,11 @@ DOWNLOAD_OBJS = zapret-download.o zapret-soap.o zapret-smtp.o util.o sign.o
 CFLAGS_LOCAL = -g -O3 -Wall -Wextra -std=gnu99 `xml2-config --cflags` `curl-config --cflags` `pkg-config --cflags libzip`
 LDFLAGS_LOCAL = -g -lnetfilter_queue `xml2-config --libs` `curl-config --libs` `pkg-config --libs libzip` -ldl -lpthread -lidn2 -lm
 DOWNLOAD_LDFLAGS = `xml2-config --libs` `curl-config --libs` `pkg-config --libs libzip` -ldl -lidn2
+TEST_CFLAGS = -g -O0 -Wall -Wextra -std=gnu99 -I. `xml2-config --cflags` `curl-config --cflags`
+TEST_LDFLAGS = `xml2-config --libs` `curl-config --libs`
 CC = gcc
 
-.PHONY: all clean install uninstall
+.PHONY: all test clean install uninstall
 
 all: $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET)
 
@@ -29,8 +32,14 @@ zapret-configuration.h.include: zapret-checker.xsd
 %.o: %.c
 	$(CC) -c $(CFLAGS_LOCAL) $< -o $@
 
+test: $(TEST_TARGET)
+	./$(TEST_TARGET)
+
+$(TEST_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) -o $(TEST_TARGET)
+
 clean:
-	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
+	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(TEST_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
 
 install:
 	install $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(PREFIX)/bin

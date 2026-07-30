@@ -5,6 +5,7 @@ zapret-checker
 zapret-download
 request.xml
 rutoken-sign
+/tests/test_core
 .vscode/
 request.xml
 request.xml.sign
