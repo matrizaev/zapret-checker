@@ -9,6 +9,8 @@ rutoken-sign
 /tests/test_core-sanitize
 /tests/test_soap
 /tests/test_soap-sanitize
+/tests/test_register
+/tests/test_register-sanitize
 /zapret-soap-capture/
 .vscode/
 request.xml

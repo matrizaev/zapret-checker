@@ -20,6 +20,7 @@ bool GetResultResponse(TSOAPContext *context, const char *soapXml,
                        size_t inputLength);
 bool GetResultSocResourcesResponse(TSOAPContext *context, const char *soapXml,
                                    size_t inputLength);
+xmlChar *GenerateRequestXml(xmlDocPtr requestXmlDoc, size_t *outputLength);
 
 static char *ReadSoapFixture(const char *filename, size_t *length) {
   char path[PATH_MAX];
@@ -219,6 +220,57 @@ static MunitResult TestMalformedResponsesAreRejected(
   return MUNIT_OK;
 }
 
+static MunitResult TestOperatorRequestTimestampIsRegenerated(
+    const MunitParameter parameters[], void *fixture) {
+  static const char requestPath[] =
+      SOAP_FIXTURE_DIRECTORY "/operator-request.xml";
+  xmlDocPtr requestDoc = NULL;
+  xmlDocPtr generatedDoc = NULL;
+  xmlChar *generated = NULL;
+  xmlChar *requestTime = NULL;
+  size_t generatedLength = 0;
+
+  (void)parameters;
+  (void)fixture;
+
+  requestDoc = xmlReadFile(requestPath, NULL, XML_PARSE_NONET);
+  munit_assert_not_null(requestDoc);
+  generated = GenerateRequestXml(requestDoc, &generatedLength);
+  munit_assert_not_null(generated);
+  munit_assert_size(generatedLength, >, 0);
+  munit_assert_size(generatedLength, <=, INT_MAX);
+  generatedDoc =
+      xmlReadMemory((char *)generated, (int)generatedLength, NULL, NULL,
+                    XML_PARSE_NONET | XML_PARSE_NOBLANKS);
+  munit_assert_not_null(generatedDoc);
+
+  xmlNodePtr root = xmlDocGetRootElement(generatedDoc);
+  munit_assert_not_null(root);
+  munit_assert_string_equal((char *)root->name, "request");
+  for (xmlNodePtr node = root->children; node != NULL; node = node->next) {
+    if (node->type == XML_ELEMENT_NODE &&
+        !xmlStrcmp(node->name, BAD_CAST "requestTime")) {
+      requestTime = xmlNodeGetContent(node);
+      break;
+    }
+  }
+  munit_assert_not_null(requestTime);
+  munit_assert_size(xmlStrlen(requestTime), ==, 28);
+  munit_assert_not_null(strstr((char *)requestTime, ".000"));
+  munit_assert_string_not_equal((char *)requestTime,
+                                "2000-01-01T00:00:00.000+0000");
+  munit_assert_not_null(
+      strstr((char *)generated, "Synthetic Operator"));
+  munit_assert_not_null(
+      strstr((char *)generated, "operator@example.test"));
+
+  xmlFree(requestTime);
+  xmlFreeDoc(generatedDoc);
+  xmlFree(generated);
+  xmlFreeDoc(requestDoc);
+  return MUNIT_OK;
+}
+
 static MunitTest SoapTests[] = {
     {"/last-dump-date-response", TestLastDumpDateResponse, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -228,6 +280,9 @@ static MunitTest SoapTests[] = {
      NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {"/malformed-responses-are-rejected", TestMalformedResponsesAreRejected,
      NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/operator-request-timestamp-is-regenerated",
+     TestOperatorRequestTimestampIsRegenerated, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
 };
 

@@ -222,6 +222,7 @@ pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
   check(zipSource != NULL, ERROR_STR_ZIPERROR, zip_error_strerror(&zipError));
   zipArchive = zip_open_from_source(zipSource, 0, &zipError);
   check(zipArchive != NULL, ERROR_STR_ZIPERROR, zip_error_strerror(&zipError));
+  zipSource = NULL;
   for (int i = 0; i < zip_get_num_entries(zipArchive, 0); i++) {
     check((zip_stat_index(zipArchive, i, 0, &zipFileStat) == 0),
           ERROR_STR_ZIPERROR, zip_strerror(zipArchive));
@@ -253,6 +254,8 @@ error:
     zip_fclose(zipFile);
   if (zipArchive != NULL)
     zip_close(zipArchive);
+  else if (zipSource != NULL)
+    zip_source_free(zipSource);
   if (decodedZipArchive != NULL)
     free(decodedZipArchive);
   return NULL;

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<request>
+  <requestTime>2000-01-01T00:00:00.000+0000</requestTime>
+  <operatorName>Synthetic Operator</operatorName>
+  <inn>0000000000</inn>
+  <ogrn>0000000000000</ogrn>
+  <email>operator@example.test</email>
+</request>

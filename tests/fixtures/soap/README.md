@@ -16,3 +16,8 @@ The observed sequence was:
 
 The raw production capture is intentionally ignored by Git and must never be
 used as a committed test fixture.
+
+`operator-request.xml` preserves only the captured request's field layout and
+uses synthetic identity data. The production PKCS#7 signature is not copied:
+the prepared-request path treats it as opaque bytes, and retaining a live
+signature would add sensitive material without improving parser coverage.
