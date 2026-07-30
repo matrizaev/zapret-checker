@@ -283,14 +283,15 @@ error:
 /*************************************************************************
  * Form and send notification messages.                                   *
  *************************************************************************/
-void SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
+bool SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
   CURL *curlHandle = NULL;
   curl_mime *message = NULL;
   struct curl_slist *headers = NULL;
   char curlError[CURL_ERROR_SIZE] = {0};
+  bool result = false;
 
   if (smtpContext == NULL)
-    return;
+    return true;
   check(soapContext != NULL && smtpContext->smtpHost != NULL &&
             smtpContext->smtpSender != NULL,
         ERROR_STR_INVALIDINPUT);
@@ -348,6 +349,7 @@ void SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
     curl_slist_free_all(headers);
     headers = NULL;
   }
+  result = true;
 
 error:
   if (curlHandle != NULL) {
@@ -360,4 +362,5 @@ error:
     curl_slist_free_all(headers);
   if (curlHandle != NULL)
     curl_easy_cleanup(curlHandle);
+  return result;
 }

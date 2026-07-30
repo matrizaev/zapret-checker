@@ -76,6 +76,13 @@ const char *const soapMethods[] = {
 
 #define OPERATOR_TIME_FORMAT "%Y-%m-%dT%T.000%z"
 
+typedef struct {
+  const void *requestFile;
+  size_t requestFileLength;
+  const void *signatureFile;
+  size_t signatureFileLength;
+} TPreparedSOAPRequest;
+
 /*************************************************************************
  * Генерирует plain-text дамп запроса оператора к SOAP серверу.           *
  * Параметр requestTime обновляется в соотвествии с текущей датой.        *
@@ -562,6 +569,7 @@ error:
  *************************************************************************/
 xmlChar *GenerateSOAPMessage(TSOAPContext *context, xmlDocPtr requestXmlDoc,
                              const enum SoapMethodTypes method,
+                             const TPreparedSOAPRequest *preparedRequest,
                              size_t *outputLength) {
   xmlDocPtr doc = NULL;
   xmlNodePtr rootNode = NULL, chldNode = NULL;
@@ -618,42 +626,60 @@ xmlChar *GenerateSOAPMessage(TSOAPContext *context, xmlDocPtr requestXmlDoc,
   } else if (method == SOAP_METHOD_sendRequest) {
     size_t signatureLen = 0;
     size_t requestLen = 0;
-    check(requestXmlDoc != NULL, ERROR_STR_INVALIDINPUT);
-    check(context->privateKeyId != NULL && context->privateKeyPassword != NULL,
-          ERROR_STR_INVALIDINPUT);
     chldNode = xmlNewChild(rootNode, NULL, BAD_CAST "requestFile", NULL);
     check(chldNode != NULL, ERROR_STR_INVALIDXML);
     check(xmlNewNsProp(chldNode, xsiNs, BAD_CAST "type",
                        BAD_CAST "xsd:base64Binary") != NULL,
           ERROR_STR_INVALIDXML);
-    requestXml = GenerateRequestXml(requestXmlDoc, &requestLen);
-    check(requestXml != NULL, ERROR_STR_INVALIDXML);
-    signature = SigningPerform((char *)requestXml, requestLen, &signatureLen,
-                               (uint8_t *)context->privateKeyPassword,
-                               strlen(context->privateKeyPassword),
-                               (uint8_t *)context->privateKeyId,
-                               context->privateKeyIdLen, 0);
-    check(signature != NULL, ERROR_STR_INVALIDSIGNATURE);
+    if (preparedRequest != NULL) {
+      check(preparedRequest->requestFile != NULL &&
+                preparedRequest->requestFileLength > 0 &&
+                preparedRequest->signatureFile != NULL &&
+                preparedRequest->signatureFileLength > 0,
+            ERROR_STR_INVALIDINPUT);
+      requestLen = preparedRequest->requestFileLength;
+      signatureLen = preparedRequest->signatureFileLength;
+      requestXmlBase64 =
+          Base64Encode(preparedRequest->requestFile, requestLen, &requestLen);
+      signatureBase64 = Base64Encode(preparedRequest->signatureFile,
+                                     signatureLen, &signatureLen);
+    } else {
+      check(requestXmlDoc != NULL, ERROR_STR_INVALIDINPUT);
+      check(context->privateKeyId != NULL &&
+                context->privateKeyPassword != NULL,
+            ERROR_STR_INVALIDINPUT);
+      requestXml = GenerateRequestXml(requestXmlDoc, &requestLen);
+      check(requestXml != NULL, ERROR_STR_INVALIDXML);
+      signature = SigningPerform((char *)requestXml, requestLen, &signatureLen,
+                                 (uint8_t *)context->privateKeyPassword,
+                                 strlen(context->privateKeyPassword),
+                                 (uint8_t *)context->privateKeyId,
+                                 context->privateKeyIdLen, 0);
+      check(signature != NULL, ERROR_STR_INVALIDSIGNATURE);
 
-    signatureBase64 = Base64Encode(signature, signatureLen, &signatureLen);
+      signatureBase64 = Base64Encode(signature, signatureLen, &signatureLen);
+      requestXmlBase64 =
+          Base64Encode((char *)requestXml, requestLen, &requestLen);
+    }
     check(signatureBase64 != NULL, ERROR_STR_INVALIDBASE64);
-
-    requestXmlBase64 =
-        Base64Encode((char *)requestXml, requestLen, &requestLen);
     check(requestXmlBase64 != NULL, ERROR_STR_INVALIDBASE64);
     xmlNodeSetContentLen(chldNode, BAD_CAST requestXmlBase64, requestLen);
     free(requestXmlBase64);
     requestXmlBase64 = NULL;
-    xmlFree(requestXml);
-    requestXml = NULL;
+    if (requestXml != NULL) {
+      xmlFree(requestXml);
+      requestXml = NULL;
+    }
     chldNode = xmlNewChild(rootNode, NULL, BAD_CAST "signatureFile", NULL);
     check(chldNode != NULL, ERROR_STR_INVALIDXML);
     check(xmlNewNsProp(chldNode, xsiNs, BAD_CAST "type",
                        BAD_CAST "xsd:base64Binary") != NULL,
           ERROR_STR_INVALIDXML);
     xmlNodeSetContentLen(chldNode, BAD_CAST signatureBase64, signatureLen);
-    free(signature);
-    signature = NULL;
+    if (signature != NULL) {
+      free(signature);
+      signature = NULL;
+    }
     free(signatureBase64);
     signatureBase64 = NULL;
     chldNode = xmlNewChild(rootNode, NULL, BAD_CAST "dumpFormatVersion", NULL);
@@ -720,7 +746,9 @@ error:
 /*************************************************************************
  * Получение выгрузки реестра запрещенных сайтов с SOAP сервера.          *
  *************************************************************************/
-void PerformSOAPCommunication(TZapretContext *context) {
+static void
+PerformSOAPCommunicationInternal(TZapretContext *context,
+                                 const TPreparedSOAPRequest *preparedRequest) {
   char *response = NULL;
   int repeatCount = 0;
   char *soapService = NULL;
@@ -738,10 +766,12 @@ void PerformSOAPCommunication(TZapretContext *context) {
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
   check(context != NULL, ERROR_STR_INVALIDINPUT);
-  check(context->blacklistHost != NULL && context->requestXmlDoc != NULL,
-        ERROR_STR_INVALIDINPUT);
-  check(context->privateKeyId != NULL && context->privateKeyPassword != NULL,
-        ERROR_STR_INVALIDINPUT);
+  check(context->blacklistHost != NULL, ERROR_STR_INVALIDINPUT);
+  if (preparedRequest == NULL) {
+    check(context->requestXmlDoc != NULL, ERROR_STR_INVALIDINPUT);
+    check(context->privateKeyId != NULL && context->privateKeyPassword != NULL,
+          ERROR_STR_INVALIDINPUT);
+  }
 
   /*************************************************************************
    * Выделяем память под контекст SOAP.                                     *
@@ -774,7 +804,8 @@ void PerformSOAPCommunication(TZapretContext *context) {
    *************************************************************************/
   log_info("SOAP: getLastDumpDateEx");
   request = GenerateSOAPMessage(context->soapContext, NULL,
-                                SOAP_METHOD_getLastDumpDateEx, &resultSize);
+                                SOAP_METHOD_getLastDumpDateEx, NULL,
+                                &resultSize);
   check(request != NULL, ERROR_STR_SOAP,
         soapMethods[SOAP_METHOD_getLastDumpDateEx]);
   httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString(
@@ -815,7 +846,8 @@ void PerformSOAPCommunication(TZapretContext *context) {
    *************************************************************************/
   log_info("SOAP: sendRequest");
   request = GenerateSOAPMessage(context->soapContext, context->requestXmlDoc,
-                                SOAP_METHOD_sendRequest, &resultSize);
+                                SOAP_METHOD_sendRequest, preparedRequest,
+                                &resultSize);
   check(request != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_sendRequest]);
   httpHeaders[HTTP_HEADER_COUNT - 1] =
       GenerateSoapActionString(context->blacklistHost, SOAP_METHOD_sendRequest);
@@ -850,7 +882,7 @@ void PerformSOAPCommunication(TZapretContext *context) {
     sleep(context->blacklistCooldownNegative);
     log_info("SOAP: getResult");
     request = GenerateSOAPMessage(context->soapContext, NULL,
-                                  SOAP_METHOD_getResult, &resultSize);
+                                  SOAP_METHOD_getResult, NULL, &resultSize);
     check(request != NULL, ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResult]);
     httpHeaders[HTTP_HEADER_COUNT - 1] =
         GenerateSoapActionString(context->blacklistHost, SOAP_METHOD_getResult);
@@ -881,7 +913,8 @@ void PerformSOAPCommunication(TZapretContext *context) {
 
   log_info("SOAP: getResultSocResources");
   request = GenerateSOAPMessage(context->soapContext, NULL,
-                                SOAP_METHOD_getResultSocResources, &resultSize);
+                                SOAP_METHOD_getResultSocResources, NULL,
+                                &resultSize);
   check(request != NULL, ERROR_STR_SOAP,
         soapMethods[SOAP_METHOD_getResultSocResources]);
   httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString(
@@ -910,4 +943,20 @@ error:
     httpHeaders[HTTP_HEADER_COUNT - 1] = NULL;
   }
   return;
+}
+
+void PerformSOAPCommunication(TZapretContext *context) {
+  PerformSOAPCommunicationInternal(context, NULL);
+}
+
+void PerformSOAPCommunicationPrepared(
+    TZapretContext *context, const void *requestFile, size_t requestFileLength,
+    const void *signatureFile, size_t signatureFileLength) {
+  TPreparedSOAPRequest preparedRequest = {
+      .requestFile = requestFile,
+      .requestFileLength = requestFileLength,
+      .signatureFile = signatureFile,
+      .signatureFileLength = signatureFileLength,
+  };
+  PerformSOAPCommunicationInternal(context, &preparedRequest);
 }

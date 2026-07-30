@@ -2,6 +2,9 @@
 zapret-configuration.h.include
 *.crt
 zapret-checker
+zapret-download
 request.xml
 rutoken-sign
 .vscode/
+request.xml
+request.xml.sign

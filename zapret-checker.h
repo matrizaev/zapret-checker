@@ -19,8 +19,11 @@ extern void ClearNetfilterContext(TNetfilterContext **context,
 extern void ClearZapretContext(TZapretContext *context);
 
 extern void PerformSOAPCommunication(TZapretContext *context);
+extern void PerformSOAPCommunicationPrepared(
+    TZapretContext *context, const void *requestFile, size_t requestFileLength,
+    const void *signatureFile, size_t signatureFileLength);
 
-extern void SendSMTPMessage(TSMTPContext *smtpContext,
+extern bool SendSMTPMessage(TSMTPContext *smtpContext,
                             TSOAPContext *soapContext);
 
 extern pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
