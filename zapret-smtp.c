@@ -1,9 +1,10 @@
 /*************************************************************************
- * Модуль взаимодействия с SMTP сервером. Формирование и отправка         *
- * информационных сообщений.                                              *
+ * SMTP notification and MIME attachment handling.                        *
  *************************************************************************/
 
 #include "allheaders.h"
+
+#include <curl/curl.h>
 
 #include "zapret-checker.h"
 
@@ -12,317 +13,293 @@
 #define SMTP_PAYLOAD_STRING_UNCHANGED "Timestamp has not been changed."
 #define SMTP_TIME_FORMAT "%a, %d %b %Y %T %z"
 
-/*************************************************************************
- * Макрос итерирования по хеш-таблице.                                    *
- *************************************************************************/
-#define CycleHashTable()                                                       \
-  {                                                                            \
-    while (node == NULL && intIndex < ipHashTable->numEntries) {               \
-      node = ipHashTable->lookup[intIndex];                                    \
-      if (node == NULL)                                                        \
-        intIndex++;                                                            \
-    }                                                                          \
-    if (node == NULL) {                                                        \
-      payloadIndex++;                                                          \
-      intIndex = 0;                                                            \
-      data = NULL;                                                             \
-      continue;                                                                \
-    }                                                                          \
-  }
+static const char *SafeString(const char *value) {
+  return value != NULL ? value : "";
+}
 
-/*************************************************************************
- * Предварительно подготовленный массив строк EMAIL.                      *
- *************************************************************************/
-static TMemoryStruct smtpPayloadText[] = {
-    /*0*/ {.memory = "From: <", .size = strlen("From: <")},
-    /*1*/ {.memory = NULL, .size = 0},
-    /*2*/ {.memory = ">\r\nTo: <", .size = strlen(">\r\nTo: <")},
-    /*3*/ {.memory = NULL, .size = 0},
-    /*4*/
-    {.memory = ">\r\nSubject: Zapret-checker's periodical "
-               "notification.\r\nMime-version: 1.0\r\nDate: ",
-     .size = strlen(">\r\nSubject: Zapret-checker's periodical "
-                    "notification.\r\nMime-version: 1.0\r\nDate: ")},
-    /*5*/ {.memory = NULL, .size = 0},
-    /*6*/
-    {.memory = "\r\nContent-Type: multipart/mixed; "
-               "boundary=frontier\r\n\r\n--frontier\r\nContent-type: "
-               "text/html; charset=utf-8\r\n\r\n<!DOCTYPE "
-               "html><html><head><meta charset = \"utf-8\"></head><body><h1>",
-     .size = strlen(
-         "\r\nContent-Type: multipart/mixed; "
-         "boundary=frontier\r\n\r\n--frontier\r\nContent-type: text/html; "
-         "charset=utf-8\r\n\r\n<!DOCTYPE html><html><head><meta charset = "
-         "\"utf-8\"></head><body><h1>")},
-    /*7*/ {.memory = NULL, .size = 0},
-    /*8*/
-    {.memory =
-         "</h1><p><a "
-         "href=\"http://vigruzki.rkn.gov.ru/docs/"
-         "description_for_operators_actual.pdf\">ISP instructions version: ",
-     .size = strlen(
-         "</h1><p><a "
-         "href=\"http://vigruzki.rkn.gov.ru/docs/"
-         "description_for_operators_actual.pdf\">ISP instructions version: ")},
-    /*9*/ {.memory = NULL, .size = 0},
-    /*10*/
-    {.memory = "</a></p><p>Request comment: ",
-     .size = strlen("</a></p><p>Request comment: ")},
-    /*11*/ {.memory = NULL, .size = 0},
-    /*12*/
-    {.memory = "</p><p>Result comment: ",
-     .size = strlen("</p><p>Result comment: ")},
-    /*13*/ {.memory = NULL, .size = 0},
-    /*14*/
-    {.memory = "</p><p>Result code: ", .size = strlen("</p><p>Result code: ")},
-    /*15*/ {.memory = NULL, .size = 0},
-    /*16*/
-    {.memory = "</p><p>Operator name: ",
-     .size = strlen("</p><p>Operator name: ")},
-    /*17*/ {.memory = NULL, .size = 0},
-    /*18*/
-    {.memory = "</p><p>Operator INN: ",
-     .size = strlen("</p><p>Operator INN: ")},
-    /*19*/ {.memory = NULL, .size = 0},
-    /*20*/
-    {.memory = "</p><p>Dump format version: ",
-     .size = strlen("</p><p>Dump format version: ")},
-    /*21*/ {.memory = NULL, .size = 0},
-    /*22*/
-    {.memory = "</p><p>Web service version: ",
-     .size = strlen("</p><p>Web service version: ")},
-    /*23*/ {.memory = NULL, .size = 0},
-    /*24*/
-    {.memory = "</p><p>Request code: ",
-     .size = strlen("</p><p>Request code: ")},
-    /*25*/ {.memory = NULL, .size = 0},
-    /*26*/
-    {.memory = "</p><p>Last dump date: ",
-     .size = strlen("</p><p>Last dump date: ")},
-    /*27*/ {.memory = NULL, .size = 0},
-    /*28*/
-    {.memory = "</p><p>Last dump date urgently: ",
-     .size = strlen("</p><p>Last dump date urgently: ")},
-    /*29*/ {.memory = NULL, .size = 0},
-    /*30*/
-    {.memory = "</p><p>Request result: ",
-     .size = strlen("</p><p>Request result: ")},
-    /*31*/ {.memory = NULL, .size = 0},
-    /*32*/
-    {.memory = "</p><p>Response result: ",
-     .size = strlen("</p><p>Response result: ")},
-    /*33*/ {.memory = NULL, .size = 0},
-    /*34*/
-    {.memory = "</p><p>Техническая поддержка: <a "
-               "href=\"mailto:zapret-support@rkn.gov.ru\">zapret-support@rkn."
-               "gov.ru</a></p><body></html>\r\n",
-     .size = strlen("</p><p>Техническая поддержка: <a "
-                    "href=\"mailto:zapret-support@rkn.gov.ru\">zapret-support@"
-                    "rkn.gov.ru</a></p><body></html>\r\n")},
-    /*35*/
-    {.memory =
-         "\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; "
-         "name=\"register.zip\"\r\nContent-Transfer-Encoding: "
-         "base64\r\nContent-Disposition: attachment; "
-         "filename=\"register.zip\"\r\n\r\n",
-     .size = strlen(
-         "\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; "
-         "name=\"register.zip\"\r\nContent-Transfer-Encoding: "
-         "base64\r\nContent-Disposition: attachment; "
-         "filename=\"register.zip\"\r\n\r\n")},
-    /*36*/ {.memory = NULL, .size = 0},
-    /*37*/
-    {.memory =
-         "\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; "
-         "name=\"social.zip\"\r\nContent-Transfer-Encoding: "
-         "base64\r\nContent-Disposition: attachment; "
-         "filename=\"social.zip\"\r\n\r\n",
-     .size = strlen(
-         "\r\n\r\n--frontier\r\nContent-Type: application/x-zip-compressed; "
-         "name=\"social.zip\"\r\nContent-Transfer-Encoding: "
-         "base64\r\nContent-Disposition: attachment; "
-         "filename=\"social.zip\"\r\n\r\n")},
-    /*38*/ {.memory = NULL, .size = 0},
-    /*39*/
-    {.memory = "\r\n\r\n--frontier--\r\n",
-     .size = strlen("\r\n\r\n--frontier--\r\n")}};
+static const char *IterationStatus(const TSOAPContext *soapContext) {
+  if (soapContext->soapResult && soapContext->registerZipArchive != NULL)
+    return SMTP_PAYLOAD_STRING_SUCCESSFUL;
+  if (soapContext->soapResult)
+    return SMTP_PAYLOAD_STRING_UNCHANGED;
+  return SMTP_PAYLOAD_STRING_UNSUCCESSFUL;
+}
 
-static const size_t smtpPayloadTextCount = 40;
-
-static bool BuildToHeader(const struct curl_slist *recipients, char **outHeader,
-                          size_t *outHeaderLen) {
-  const char separator[] = ">, <";
-  const size_t separatorLen = sizeof(separator) - 1;
-  const struct curl_slist *recipient = NULL;
+static char *BuildHtmlBody(const TSOAPContext *soapContext) {
+  static const char bodyTemplate[] =
+      "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>"
+      "<h1>%s</h1>"
+      "<p><a href=\"http://vigruzki.rkn.gov.ru/docs/"
+      "description_for_operators_actual.pdf\">ISP instructions version: "
+      "%s</a></p>"
+      "<p>Request comment: %s</p>"
+      "<p>Result comment: %s</p>"
+      "<p>Result code: %d</p>"
+      "<p>Operator name: %s</p>"
+      "<p>Operator INN: %s</p>"
+      "<p>Dump format version: %s</p>"
+      "<p>Web service version: %s</p>"
+      "<p>Request code: %s</p>"
+      "<p>Last dump date: %s</p>"
+      "<p>Last dump date urgently: %s</p>"
+      "<p>Request result: %s</p>"
+      "<p>Response result: %s</p>"
+      "<p>Техническая поддержка: "
+      "<a href=\"mailto:zapret-support@rkn.gov.ru\">"
+      "zapret-support@rkn.gov.ru</a></p>"
+      "</body></html>";
   char *result = NULL;
-  bool ok = false;
-  size_t totalLen = 0;
 
-  check(outHeader != NULL && outHeaderLen != NULL, ERROR_STR_INVALIDINPUT);
-  check(recipients != NULL, ERROR_STR_INVALIDINPUT);
+  check(soapContext != NULL, ERROR_STR_INVALIDINPUT);
+  int required = snprintf(
+      NULL, 0, bodyTemplate, IterationStatus(soapContext),
+      SafeString(soapContext->docVersion),
+      SafeString(soapContext->requestComment),
+      SafeString(soapContext->resultComment), soapContext->resultCode,
+      SafeString(soapContext->operatorName),
+      SafeString(soapContext->operatorINN),
+      SafeString(soapContext->dumpFormatVersion),
+      SafeString(soapContext->webServiceVersion),
+      SafeString(soapContext->requestCode),
+      SafeString(soapContext->lastDumpDate),
+      SafeString(soapContext->lastDumpDateUrgently),
+      SafeString(soapContext->requestResult),
+      SafeString(soapContext->resultResult));
+  check(required >= 0, ERROR_STR_INVALIDSTRING);
 
-  for (recipient = recipients; recipient != NULL; recipient = recipient->next) {
-    check(recipient->data != NULL && recipient->data[0] != '\0',
-          ERROR_STR_INVALIDSTRING);
-    size_t recipientLen = strlen(recipient->data);
-    if (totalLen != 0)
-      totalLen += separatorLen;
-    totalLen += recipientLen;
-  }
-
-  result = calloc(totalLen + 1, 1);
+  result = calloc((size_t)required + 1, 1);
   check_mem(result);
-
-  char *cursor = result;
-  for (recipient = recipients; recipient != NULL; recipient = recipient->next) {
-    size_t recipientLen = strlen(recipient->data);
-    if (cursor != result) {
-      memcpy(cursor, separator, separatorLen);
-      cursor += separatorLen;
-    }
-    memcpy(cursor, recipient->data, recipientLen);
-    cursor += recipientLen;
-  }
-  *cursor = '\0';
-
-  *outHeader = result;
-  *outHeaderLen = totalLen;
-  ok = true;
+  int written = snprintf(
+      result, (size_t)required + 1, bodyTemplate, IterationStatus(soapContext),
+      SafeString(soapContext->docVersion),
+      SafeString(soapContext->requestComment),
+      SafeString(soapContext->resultComment), soapContext->resultCode,
+      SafeString(soapContext->operatorName),
+      SafeString(soapContext->operatorINN),
+      SafeString(soapContext->dumpFormatVersion),
+      SafeString(soapContext->webServiceVersion),
+      SafeString(soapContext->requestCode),
+      SafeString(soapContext->lastDumpDate),
+      SafeString(soapContext->lastDumpDateUrgently),
+      SafeString(soapContext->requestResult),
+      SafeString(soapContext->resultResult));
+  check(written == required, ERROR_STR_INVALIDSTRING);
+  return result;
 error:
-  if (!ok && result != NULL)
+  if (result != NULL)
     free(result);
-  return ok;
+  return NULL;
 }
 
-/*************************************************************************
- * libCURL callback для обработки массива строка EMAIL.                   *
- *************************************************************************/
-static size_t SMTPPayloadCallback(void *ptr, size_t size, size_t nmemb,
-                                  void *userp) {
-  static char *data = NULL;
-  static size_t len = 0;
-  static size_t payloadIndex = 0;
-  size_t bufferSize = size * nmemb;
-
-  (void)userp;
-  if (ptr == NULL || bufferSize == 0)
-    return 0;
-  if (data == NULL) {
-    while (payloadIndex < smtpPayloadTextCount) {
-      if (smtpPayloadText[36].memory == NULL && payloadIndex == 35)
-        payloadIndex += 2;
-      if (smtpPayloadText[38].memory == NULL && payloadIndex == 37)
-        payloadIndex += 2;
-      if (smtpPayloadText[payloadIndex].memory != NULL) {
-        data = smtpPayloadText[payloadIndex].memory;
-        len = smtpPayloadText[payloadIndex].size;
-        break;
-      } else
-        payloadIndex++;
-    }
-  }
-  if (data != NULL) {
-    if (len <= bufferSize) {
-      size_t retLen = len;
-      memcpy(ptr, data, len);
-      data = NULL;
-      len = 0;
-      payloadIndex++;
-      return retLen;
-    } else {
-      memcpy(ptr, data, bufferSize);
-      len -= bufferSize;
-      data += bufferSize;
-      return bufferSize;
-    }
-  }
-  payloadIndex = 0;
-  data = NULL;
-  len = 0;
-  return 0;
-}
-
-/*************************************************************************
- * Обновляем массив строк EMAIL в соотвествии с текущим SOAP контекстом.  *
- *************************************************************************/
-bool UpdatePayloadText(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
+static bool AddZipAttachment(curl_mime *message, const char *encodedArchive,
+                             const char *filename) {
+  void *archive = NULL;
+  size_t archiveLength = 0;
   bool result = false;
 
-  check(smtpContext != NULL && soapContext != NULL, ERROR_STR_INVALIDINPUT);
-  smtpPayloadText[1].memory = smtpContext->smtpSender;
-  smtpPayloadText[5].memory = GetDateTime(SMTP_TIME_FORMAT);
-  check_mem(smtpPayloadText[5].memory);
-  if ((soapContext->soapResult == true) &&
-      (soapContext->registerZipArchive != NULL))
-    smtpPayloadText[7].memory = SMTP_PAYLOAD_STRING_SUCCESSFUL;
-  else if ((soapContext->soapResult == true) &&
-           (soapContext->registerZipArchive == NULL))
-    smtpPayloadText[7].memory = SMTP_PAYLOAD_STRING_UNCHANGED;
-  else
-    smtpPayloadText[7].memory = SMTP_PAYLOAD_STRING_UNSUCCESSFUL;
+  check(message != NULL && encodedArchive != NULL && filename != NULL,
+        ERROR_STR_INVALIDINPUT);
+  archive =
+      Base64Decode(encodedArchive, strlen(encodedArchive), &archiveLength);
+  check(archive != NULL && archiveLength > 0, ERROR_STR_INVALIDBASE64);
 
-  smtpPayloadText[9].memory = soapContext->docVersion;
-  smtpPayloadText[11].memory = soapContext->requestComment;
-  smtpPayloadText[13].memory = soapContext->resultComment;
-  smtpPayloadText[15].memory = calloc(32, 1);
-  check_mem(smtpPayloadText[15].memory);
-  check(snprintf(smtpPayloadText[15].memory, 32, "%d",
-                 soapContext->resultCode) > 0,
-        ERROR_STR_INVALIDSTRING);
-  smtpPayloadText[17].memory = soapContext->operatorName;
-  smtpPayloadText[19].memory = soapContext->operatorINN;
-  smtpPayloadText[21].memory = soapContext->dumpFormatVersion;
-  smtpPayloadText[23].memory = soapContext->webServiceVersion;
-  smtpPayloadText[25].memory = soapContext->requestCode;
-  smtpPayloadText[27].memory = soapContext->lastDumpDate;
-  smtpPayloadText[29].memory = soapContext->lastDumpDateUrgently;
-  smtpPayloadText[31].memory = soapContext->requestResult;
-  smtpPayloadText[33].memory = soapContext->resultResult;
-  smtpPayloadText[36].memory = soapContext->registerZipArchive;
-  smtpPayloadText[38].memory = soapContext->socialZipArchive;
-
-  if (smtpPayloadText[1].memory != NULL)
-    smtpPayloadText[1].size = strlen(smtpPayloadText[1].memory);
-  else
-    smtpPayloadText[1].size = 0;
-
-  for (size_t i = 5; i <= 33; i += 2) {
-    if (smtpPayloadText[i].memory != NULL)
-      smtpPayloadText[i].size = strlen(smtpPayloadText[i].memory);
-    else
-      smtpPayloadText[i].size = 0;
-  }
-
-  if (smtpPayloadText[36].memory != NULL)
-    smtpPayloadText[36].size = strlen(smtpPayloadText[36].memory);
-  else
-    smtpPayloadText[36].size = 0;
-
-  if (smtpPayloadText[38].memory != NULL)
-    smtpPayloadText[38].size = strlen(smtpPayloadText[38].memory);
-  else
-    smtpPayloadText[38].size = 0;
+  curl_mimepart *part = curl_mime_addpart(message);
+  check(part != NULL, ERROR_STR_LIBCURL, "curl_mime_addpart");
+  CURLcode curlResult =
+      curl_mime_data(part, (const char *)archive, archiveLength);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_mime_filename(part, filename);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_mime_type(part, "application/zip");
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_mime_encoder(part, "base64");
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
 
   result = true;
 error:
+  if (archive != NULL)
+    free(archive);
   return result;
 }
 
+static curl_mime *BuildMimeMessage(CURL *curlHandle,
+                                   const TSOAPContext *soapContext,
+                                   bool includeAttachments) {
+  curl_mime *message = NULL;
+  char *htmlBody = NULL;
+
+  check(curlHandle != NULL && soapContext != NULL, ERROR_STR_INVALIDINPUT);
+  htmlBody = BuildHtmlBody(soapContext);
+  check(htmlBody != NULL, ERROR_STR_INVALIDSTRING);
+
+  message = curl_mime_init(curlHandle);
+  check(message != NULL, ERROR_STR_LIBCURL, "curl_mime_init");
+  curl_mimepart *part = curl_mime_addpart(message);
+  check(part != NULL, ERROR_STR_LIBCURL, "curl_mime_addpart");
+  CURLcode curlResult =
+      curl_mime_data(part, htmlBody, CURL_ZERO_TERMINATED);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_mime_type(part, "text/html; charset=utf-8");
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_mime_encoder(part, "quoted-printable");
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+
+  if (includeAttachments && soapContext->registerZipArchive != NULL)
+    check(AddZipAttachment(message, soapContext->registerZipArchive,
+                           "register.zip"),
+          ERROR_STR_INITIALIZATION);
+  if (includeAttachments && soapContext->socialZipArchive != NULL)
+    check(AddZipAttachment(message, soapContext->socialZipArchive, "social.zip"),
+          ERROR_STR_INITIALIZATION);
+
+  free(htmlBody);
+  return message;
+error:
+  if (htmlBody != NULL)
+    free(htmlBody);
+  if (message != NULL)
+    curl_mime_free(message);
+  return NULL;
+}
+
+static bool AppendHeader(struct curl_slist **headers, const char *header) {
+  check(headers != NULL && header != NULL, ERROR_STR_INVALIDINPUT);
+  struct curl_slist *updated = curl_slist_append(*headers, header);
+  check(updated != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
+  *headers = updated;
+  return true;
+error:
+  return false;
+}
+
+static char *BuildAddressHeader(const char *name,
+                                const struct curl_slist *addresses) {
+  static const char separator[] = ">, <";
+  char *header = NULL;
+  size_t length = 0;
+
+  check(name != NULL && addresses != NULL, ERROR_STR_INVALIDINPUT);
+  length = strlen(name) + strlen(": <>") + 1;
+  for (const struct curl_slist *item = addresses; item != NULL;
+       item = item->next) {
+    check(item->data != NULL && item->data[0] != '\0',
+          ERROR_STR_INVALIDSTRING);
+    length += strlen(item->data);
+    if (item != addresses)
+      length += sizeof(separator) - 1;
+  }
+
+  header = calloc(length, 1);
+  check_mem(header);
+  int written = snprintf(header, length, "%s: <", name);
+  check(written > 0 && (size_t)written < length, ERROR_STR_INVALIDSTRING);
+  size_t offset = (size_t)written;
+  for (const struct curl_slist *item = addresses; item != NULL;
+       item = item->next) {
+    if (item != addresses) {
+      memcpy(header + offset, separator, sizeof(separator) - 1);
+      offset += sizeof(separator) - 1;
+    }
+    size_t addressLength = strlen(item->data);
+    memcpy(header + offset, item->data, addressLength);
+    offset += addressLength;
+  }
+  header[offset++] = '>';
+  header[offset] = '\0';
+  return header;
+error:
+  if (header != NULL)
+    free(header);
+  return NULL;
+}
+
+static struct curl_slist *
+BuildMessageHeaders(const TSMTPContext *smtpContext,
+                    const struct curl_slist *recipients) {
+  struct curl_slist *headers = NULL;
+  char *fromHeader = NULL;
+  char *toHeader = NULL;
+  char *date = NULL;
+  char *dateHeader = NULL;
+
+  check(smtpContext != NULL && smtpContext->smtpSender != NULL &&
+            recipients != NULL,
+        ERROR_STR_INVALIDINPUT);
+
+  struct curl_slist sender = {.data = smtpContext->smtpSender, .next = NULL};
+  fromHeader = BuildAddressHeader("From", &sender);
+  toHeader = BuildAddressHeader("To", recipients);
+  date = GetDateTime(SMTP_TIME_FORMAT);
+  check(fromHeader != NULL && toHeader != NULL && date != NULL,
+        ERROR_STR_INVALIDSTRING);
+
+  size_t dateHeaderLength = strlen("Date: ") + strlen(date) + 1;
+  dateHeader = calloc(dateHeaderLength, 1);
+  check_mem(dateHeader);
+  int written =
+      snprintf(dateHeader, dateHeaderLength, "Date: %s", date);
+  check(written > 0 && (size_t)written < dateHeaderLength,
+        ERROR_STR_INVALIDSTRING);
+
+  check(AppendHeader(&headers, fromHeader), ERROR_STR_LIBCURL,
+        "curl_slist_append");
+  check(AppendHeader(&headers, toHeader), ERROR_STR_LIBCURL,
+        "curl_slist_append");
+  check(AppendHeader(
+            &headers,
+            "Subject: Zapret-checker's periodical notification."),
+        ERROR_STR_LIBCURL, "curl_slist_append");
+  check(AppendHeader(&headers, "Mime-Version: 1.0"), ERROR_STR_LIBCURL,
+        "curl_slist_append");
+  check(AppendHeader(&headers, dateHeader), ERROR_STR_LIBCURL,
+        "curl_slist_append");
+
+  free(fromHeader);
+  free(toHeader);
+  free(date);
+  free(dateHeader);
+  return headers;
+error:
+  if (fromHeader != NULL)
+    free(fromHeader);
+  if (toHeader != NULL)
+    free(toHeader);
+  if (date != NULL)
+    free(date);
+  if (dateHeader != NULL)
+    free(dateHeader);
+  if (headers != NULL)
+    curl_slist_free_all(headers);
+  return NULL;
+}
+
 /*************************************************************************
- * Формируем и посылаем информационны сообщения EMAIL.                    *
+ * Form and send notification messages.                                   *
  *************************************************************************/
 void SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
   CURL *curlHandle = NULL;
-  CURLcode curlResult = 0;
-  char *toHeader = NULL;
-  size_t toHeaderLen = 0;
+  curl_mime *message = NULL;
+  struct curl_slist *headers = NULL;
+  char curlError[CURL_ERROR_SIZE] = {0};
 
   if (smtpContext == NULL)
     return;
   check(soapContext != NULL && smtpContext->smtpHost != NULL &&
             smtpContext->smtpSender != NULL,
         ERROR_STR_INVALIDINPUT);
-  check((curlHandle = curl_easy_init()) != NULL, ERROR_STR_LIBCURL,
+
+  curlHandle = curl_easy_init();
+  check(curlHandle != NULL, ERROR_STR_LIBCURL, "curl_easy_init");
+  CURLcode curlResult =
+      curl_easy_setopt(curlHandle, CURLOPT_ERRORBUFFER, curlError);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
         curl_easy_strerror(curlResult));
   curlResult = curl_easy_setopt(curlHandle, CURLOPT_URL, smtpContext->smtpHost);
   check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
@@ -331,57 +308,56 @@ void SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
       curl_easy_setopt(curlHandle, CURLOPT_MAIL_FROM, smtpContext->smtpSender);
   check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
         curl_easy_strerror(curlResult));
-  curlResult =
-      curl_easy_setopt(curlHandle, CURLOPT_READFUNCTION, SMTPPayloadCallback);
-  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
-        curl_easy_strerror(curlResult));
-  curlResult = curl_easy_setopt(curlHandle, CURLOPT_UPLOAD, 1L);
-  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
-        curl_easy_strerror(curlResult));
-  check(UpdatePayloadText(smtpContext, soapContext) == true,
-        ERROR_STR_INITIALIZATION);
-  for (int i = 0; i < 2; i++) {
-    if (smtpContext->recipients[i] != NULL) {
-      check(BuildToHeader(smtpContext->recipients[i], &toHeader,
-                          &toHeaderLen) == true,
-            ERROR_STR_INVALIDSTRING);
-      smtpPayloadText[3].memory = toHeader;
-      smtpPayloadText[3].size = toHeaderLen;
-      if (i == 1) {
-        smtpPayloadText[36].memory = NULL;
-        smtpPayloadText[36].size = 0;
-        smtpPayloadText[38].memory = NULL;
-        smtpPayloadText[38].size = 0;
-      }
-      curlResult = curl_easy_setopt(curlHandle, CURLOPT_MAIL_RCPT,
-                                    smtpContext->recipients[i]);
-      check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
-            curl_easy_strerror(curlResult));
-      curlResult = curl_easy_perform(curlHandle);
-      check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
-            curl_easy_strerror(curlResult));
-      free(toHeader);
-      toHeader = NULL;
-      smtpPayloadText[3].memory = NULL;
-      smtpPayloadText[3].size = 0;
+
+  for (int i = 0; i < SMTP_RECIPIENTS_LIST_COUNT; i++) {
+    if (smtpContext->recipients[i] == NULL)
+      continue;
+
+    bool includeAttachments = (i == 0);
+    message = BuildMimeMessage(curlHandle, soapContext, includeAttachments);
+    headers =
+        BuildMessageHeaders(smtpContext, smtpContext->recipients[i]);
+    check(message != NULL && headers != NULL, ERROR_STR_INITIALIZATION);
+
+    curlResult = curl_easy_setopt(curlHandle, CURLOPT_MAIL_RCPT,
+                                  smtpContext->recipients[i]);
+    check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+          curl_easy_strerror(curlResult));
+    curlResult =
+        curl_easy_setopt(curlHandle, CURLOPT_HTTPHEADER, headers);
+    check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+          curl_easy_strerror(curlResult));
+    curlResult =
+        curl_easy_setopt(curlHandle, CURLOPT_MIMEPOST, message);
+    check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+          curl_easy_strerror(curlResult));
+
+    curlError[0] = '\0';
+    curlResult = curl_easy_perform(curlHandle);
+    if (curlResult != CURLE_OK) {
+      errno = 0;
+      log_err("SMTP transfer failed: %s%s%s", curl_easy_strerror(curlResult),
+              curlError[0] != '\0' ? ": " : "", curlError);
+      goto error;
     }
+
+    curl_easy_setopt(curlHandle, CURLOPT_MIMEPOST, NULL);
+    curl_easy_setopt(curlHandle, CURLOPT_HTTPHEADER, NULL);
+    curl_mime_free(message);
+    message = NULL;
+    curl_slist_free_all(headers);
+    headers = NULL;
   }
+
 error:
+  if (curlHandle != NULL) {
+    curl_easy_setopt(curlHandle, CURLOPT_MIMEPOST, NULL);
+    curl_easy_setopt(curlHandle, CURLOPT_HTTPHEADER, NULL);
+  }
+  if (message != NULL)
+    curl_mime_free(message);
+  if (headers != NULL)
+    curl_slist_free_all(headers);
   if (curlHandle != NULL)
     curl_easy_cleanup(curlHandle);
-  if (toHeader != NULL)
-    free(toHeader);
-  smtpPayloadText[3].memory = NULL;
-  smtpPayloadText[3].size = 0;
-  if (smtpPayloadText[5].memory != NULL) {
-    free(smtpPayloadText[5].memory);
-    smtpPayloadText[5].memory = NULL;
-    smtpPayloadText[5].size = 0;
-  }
-  if (smtpPayloadText[15].memory != NULL) {
-    free(smtpPayloadText[15].memory);
-    smtpPayloadText[15].memory = NULL;
-    smtpPayloadText[15].size = 0;
-  }
-  return;
 }
