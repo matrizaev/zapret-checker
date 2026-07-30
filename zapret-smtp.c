@@ -13,6 +13,27 @@
 #define SMTP_PAYLOAD_STRING_UNCHANGED "Timestamp has not been changed."
 #define SMTP_TIME_FORMAT "%a, %d %b %Y %T %z"
 
+typedef struct {
+  char lastServerReply[CURL_ERROR_SIZE];
+} TSMTPTrace;
+
+static int SMTPDebugCallback(CURL *curlHandle, curl_infotype type, char *data,
+                             size_t size, void *userData) {
+  (void)curlHandle;
+  TSMTPTrace *trace = userData;
+
+  if (trace == NULL || type != CURLINFO_HEADER_IN || data == NULL || size == 0)
+    return 0;
+  size_t length = size;
+  while (length > 0 && (data[length - 1] == '\r' || data[length - 1] == '\n'))
+    length--;
+  if (length >= sizeof(trace->lastServerReply))
+    length = sizeof(trace->lastServerReply) - 1;
+  memcpy(trace->lastServerReply, data, length);
+  trace->lastServerReply[length] = '\0';
+  return 0;
+}
+
 static const char *SafeString(const char *value) {
   return value != NULL ? value : "";
 }
@@ -102,6 +123,8 @@ static bool AddZipAttachment(curl_mime *message, const char *encodedArchive,
   archive =
       Base64Decode(encodedArchive, strlen(encodedArchive), &archiveLength);
   check(archive != NULL && archiveLength > 0, ERROR_STR_INVALIDBASE64);
+  log_info("SMTP attachment %s: %zu compressed bytes before MIME encoding.",
+           filename, archiveLength);
 
   curl_mimepart *part = curl_mime_addpart(message);
   check(part != NULL, ERROR_STR_LIBCURL, "curl_mime_addpart");
@@ -288,6 +311,7 @@ bool SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
   curl_mime *message = NULL;
   struct curl_slist *headers = NULL;
   char curlError[CURL_ERROR_SIZE] = {0};
+  TSMTPTrace trace = {0};
   bool result = false;
 
   if (smtpContext == NULL)
@@ -300,6 +324,16 @@ bool SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
   check(curlHandle != NULL, ERROR_STR_LIBCURL, "curl_easy_init");
   CURLcode curlResult =
       curl_easy_setopt(curlHandle, CURLOPT_ERRORBUFFER, curlError);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_easy_setopt(curlHandle, CURLOPT_DEBUGFUNCTION,
+                                SMTPDebugCallback);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_easy_setopt(curlHandle, CURLOPT_DEBUGDATA, &trace);
+  check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
+        curl_easy_strerror(curlResult));
+  curlResult = curl_easy_setopt(curlHandle, CURLOPT_VERBOSE, 1L);
   check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
         curl_easy_strerror(curlResult));
   curlResult = curl_easy_setopt(curlHandle, CURLOPT_URL, smtpContext->smtpHost);
@@ -334,11 +368,15 @@ bool SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
           curl_easy_strerror(curlResult));
 
     curlError[0] = '\0';
+    trace.lastServerReply[0] = '\0';
     curlResult = curl_easy_perform(curlHandle);
     if (curlResult != CURLE_OK) {
       errno = 0;
-      log_err("SMTP transfer failed: %s%s%s", curl_easy_strerror(curlResult),
-              curlError[0] != '\0' ? ": " : "", curlError);
+      log_err("SMTP transfer failed: %s%s%s%s%s",
+              curl_easy_strerror(curlResult),
+              curlError[0] != '\0' ? ": " : "", curlError,
+              trace.lastServerReply[0] != '\0' ? "; last server reply: " : "",
+              trace.lastServerReply);
       goto error;
     }
 
