@@ -8,3 +8,6 @@ rutoken-sign
 .vscode/
 request.xml
 request.xml.sign
+blacklist.xml
+social.xml
+zapret-checker.xml
