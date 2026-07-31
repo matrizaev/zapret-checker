@@ -27,7 +27,7 @@ typedef struct {
 } TCapturedPacket;
 
 typedef struct {
-  pfHashTable *hashTable;
+  pfHashSet *blockedKeys;
   TNetfilterContext context;
   TDNSAnswer answerTemplate;
 } TRawDNSFixture;
@@ -261,20 +261,20 @@ static void AssertCapturedDNSResponse(const TRawDNSFixture *fixture,
       &fixture->answerTemplate);
 }
 
-static bool AddBlockedDomain(pfHashTable *table, const char *domain) {
+static bool AddBlockedDomain(pfHashSet *set, const char *domain) {
   char domainBuffer[256];
   uint8_t *dnsName = NULL;
   bool result = false;
   int written = 0;
 
   written = snprintf(domainBuffer, sizeof(domainBuffer), ".%s", domain);
-  if (table == NULL || domain == NULL || written <= 0 ||
+  if (set == NULL || domain == NULL || written <= 0 ||
       (size_t)written >= sizeof(domainBuffer))
     return false;
   dnsName = String2DNSNotation(domainBuffer);
   if (dnsName == NULL)
     return false;
-  result = pfHashSet(table, (char *)dnsName, NULL);
+  result = pfHashSetAdd(set, (char *)dnsName);
   free(dnsName);
   return result;
 }
@@ -288,13 +288,13 @@ static void *RawDNSSetup(const MunitParameter parameters[], void *userData) {
   (void)parameters;
   (void)userData;
   memset(fixture, 0, sizeof(*fixture));
-  fixture->hashTable = pfHashCreate(NULL, 31);
-  if (fixture->hashTable == NULL ||
-      !AddBlockedDomain(fixture->hashTable, "example.com") ||
-      !AddBlockedDomain(fixture->hashTable, "blocked.test"))
+  fixture->blockedKeys = pfHashSetCreate(NULL, 31);
+  if (fixture->blockedKeys == NULL ||
+      !AddBlockedDomain(fixture->blockedKeys, "example.com") ||
+      !AddBlockedDomain(fixture->blockedKeys, "blocked.test"))
     munit_error("cannot populate DNS hash table");
 
-  fixture->context.hashTable = fixture->hashTable;
+  fixture->context.blockedKeys = fixture->blockedKeys;
   fixture->context.ifIndex = 9;
   fixture->context.redirectSocket = 43;
   fixture->context.redirectDataLen = TEST_PACKET_CAPACITY;
@@ -331,7 +331,7 @@ static void RawDNSTearDown(void *fixtureData) {
 
   if (fixture == NULL)
     return;
-  pfHashDestroy(fixture->hashTable);
+  pfHashSetDestroy(fixture->blockedKeys);
   free(fixture->context.redirectNetworkPacket);
   free(fixture);
 }
@@ -562,7 +562,7 @@ static MunitResult TestInvalidContextIsRejected(
   static uint8_t hardwareAddress[8] = {0};
   TRawDNSFixture *fixture = fixtureData;
   uint8_t packet[TEST_PACKET_CAPACITY] __attribute__((aligned(4)));
-  pfHashTable *hashTable = fixture->context.hashTable;
+  const pfHashSet *blockedKeys = fixture->context.blockedKeys;
   uint8_t *redirectPacket = fixture->context.redirectNetworkPacket;
   size_t redirectLength = fixture->context.redirectDataLen;
   size_t questionSize = 0;
@@ -575,10 +575,10 @@ static MunitResult TestInvalidContextIsRejected(
   munit_assert_false(
       ProcessRawPacketDNS(packet, packetLength, &fixture->context, NULL));
 
-  fixture->context.hashTable = NULL;
+  fixture->context.blockedKeys = NULL;
   munit_assert_false(ProcessRawPacketDNS(packet, packetLength,
                                          &fixture->context, hardwareAddress));
-  fixture->context.hashTable = hashTable;
+  fixture->context.blockedKeys = blockedKeys;
 
   fixture->context.redirectNetworkPacket = NULL;
   munit_assert_false(ProcessRawPacketDNS(packet, packetLength,

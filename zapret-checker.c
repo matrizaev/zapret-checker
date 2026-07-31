@@ -115,8 +115,8 @@ error:
 /*************************************************************************
  * Функция обновления списка IP адресов IPSET.                            *
  *************************************************************************/
-static void UpdateIpsetList(char *ipsetList, pfHashTable *hashTable) {
-  if (hashTable == NULL || ipsetList == NULL)
+static void UpdateIpsetList(char *ipsetList, const pfHashSet *ipAddresses) {
+  if (ipAddresses == NULL || ipsetList == NULL)
     return;
 
   /*************************************************************************
@@ -184,8 +184,8 @@ static void UpdateIpsetList(char *ipsetList, pfHashTable *hashTable) {
   /*************************************************************************
    * Добавляем в временный список актуальный IP адреса.                     *
    *************************************************************************/
-  for (size_t i = 0; i < hashTable->numEntries; i++) {
-    for (pfHashNode *node = hashTable->lookup[i]; node != NULL;
+  for (uint32_t i = 0; i < ipAddresses->bucketCount; i++) {
+    for (const pfHashSetNode *node = ipAddresses->lookup[i]; node != NULL;
          node = node->next) {
       check(fprintf(fout, "-exist add ZAPRET_TEMP %s\n", node->key) > 0,
             ERROR_STR_IPSET1);
@@ -227,6 +227,9 @@ error:
 int main(int argc, char *argv[]) {
   int exitCode = EXIT_FAILURE;
   const char *configurationFile = ZAPRET_DEFAULT_CONFIG_FILE;
+  const uint32_t blacklistBucketCounts[NETFILTER_TYPE_COUNT] = {
+      ZAPRET_HTTP_HASH_BUCKET_COUNT, ZAPRET_DNS_HASH_BUCKET_COUNT,
+      ZAPRET_IP_HASH_BUCKET_COUNT};
   TZapretContext context;
 
   if (argc == 3 &&
@@ -271,11 +274,9 @@ int main(int argc, char *argv[]) {
       /*************************************************************************
        * Создаём хеш-таблицы. *
        *************************************************************************/
-      for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-        context.hashTables[i] = pfHashCreate(
-            NULL, ZapretHashBucketCount((TNetfilterType)i));
-        check_mem(context.hashTables[i]);
-      }
+      check(InitializeZapretBlacklist(&context.blacklist,
+                                      blacklistBucketCounts),
+            ERROR_STR_INITIALIZATION);
 
       /*************************************************************************
        * Обрабатываем пользовательский файл запрещённых ресурсов. *
@@ -284,7 +285,7 @@ int main(int argc, char *argv[]) {
         log_info("Parsing custom blacklist.");
         if (ProcessRegisterCustomBlacklist(context.redirectNSLookup,
                                            context.customBlacklist,
-                                           context.hashTables) != true) {
+                                           &context.blacklist) != true) {
           log_err(ERROR_STR_CUSTOMBL);
         }
       }
@@ -294,12 +295,12 @@ int main(int argc, char *argv[]) {
          * Запускаем потоки фильтрации. *
          *************************************************************************/
         log_info("Starting filtering threads.");
-        StartNetfilterProcessing(context.httpThreadsContext,
-                                 context.redirectHTTPCount,
-                                 context.hashTables[NETFILTER_TYPE_HTTP]);
-        StartNetfilterProcessing(context.dnsThreadsContext,
-                                 context.redirectDNSCount,
-                                 context.hashTables[NETFILTER_TYPE_DNS]);
+        StartHTTPNetfilterProcessing(context.httpThreadsContext,
+                                     context.redirectHTTPCount,
+                                     context.blacklist.httpRules);
+        StartDNSNetfilterProcessing(context.dnsThreadsContext,
+                                    context.redirectDNSCount,
+                                    context.blacklist.dnsNames);
       }
 
       /*************************************************************************
@@ -308,7 +309,7 @@ int main(int argc, char *argv[]) {
       if (context.redirectIpsetList != NULL) {
         log_info("Updating ipset list.");
         UpdateIpsetList(context.redirectIpsetList,
-                        context.hashTables[NETFILTER_TYPE_IP]);
+                        context.blacklist.ipAddresses);
       }
     }
 
@@ -348,10 +349,10 @@ int main(int argc, char *argv[]) {
            * Обрабатываем выгрузку файла запрещённых ресурсов РосКомНадзора. *
            *************************************************************************/
           log_info("Parsing RKN blacklist.");
-          pfHashTable **hashTables = ProcessRegisterZipArchive(
+          TZapretBlacklist *blacklist = ProcessRegisterZipArchive(
               context.soapContext->registerZipArchive, context.redirectNSLookup,
               context.timestampFile);
-          if (hashTables != NULL) {
+          if (blacklist != NULL) {
 
             /*************************************************************************
              * Обрабатываем пользовательский файл запрещённых ресурсов. *
@@ -360,7 +361,7 @@ int main(int argc, char *argv[]) {
               log_info("Parsing custom blacklist.");
               if (ProcessRegisterCustomBlacklist(context.redirectNSLookup,
                                                  context.customBlacklist,
-                                                 hashTables) != true) {
+                                                 blacklist) != true) {
                 log_err(ERROR_STR_CUSTOMBL);
               }
             }
@@ -380,12 +381,10 @@ int main(int argc, char *argv[]) {
             /*************************************************************************
              * Актуализируем хеш-таблицы. *
              *************************************************************************/
-            for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-              if (context.hashTables[i] != NULL)
-                pfHashDestroy(context.hashTables[i]);
-              context.hashTables[i] = hashTables[i];
-            }
-            free(hashTables);
+            DestroyZapretBlacklist(&context.blacklist);
+            context.blacklist = *blacklist;
+            memset(blacklist, 0, sizeof(*blacklist));
+            free(blacklist);
 
             if (context.dnsThreadsContext != NULL ||
                 context.httpThreadsContext != NULL) {
@@ -393,12 +392,12 @@ int main(int argc, char *argv[]) {
                * Запускаем потоки фильтрации. *
                *************************************************************************/
               log_info("Starting filtering threads.");
-              StartNetfilterProcessing(context.httpThreadsContext,
-                                       context.redirectHTTPCount,
-                                       context.hashTables[NETFILTER_TYPE_HTTP]);
-              StartNetfilterProcessing(context.dnsThreadsContext,
-                                       context.redirectDNSCount,
-                                       context.hashTables[NETFILTER_TYPE_DNS]);
+              StartHTTPNetfilterProcessing(context.httpThreadsContext,
+                                           context.redirectHTTPCount,
+                                           context.blacklist.httpRules);
+              StartDNSNetfilterProcessing(context.dnsThreadsContext,
+                                          context.redirectDNSCount,
+                                          context.blacklist.dnsNames);
             }
 
             /*************************************************************************
@@ -407,7 +406,7 @@ int main(int argc, char *argv[]) {
             if (context.redirectIpsetList != NULL) {
               log_info("Updating ipset list.");
               UpdateIpsetList(context.redirectIpsetList,
-                              context.hashTables[NETFILTER_TYPE_IP]);
+                              context.blacklist.ipAddresses);
             }
           } else {
             log_err(ERROR_STR_IPSET1);

@@ -1,32 +1,63 @@
-typedef struct sTStringList {
-  char *value;
-  struct sTStringList *next;
-  uint32_t hash;
-} TStringList;
+#ifndef PFHASH_H
+#define PFHASH_H
 
-typedef struct sPfHashNode {
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+typedef uint32_t (*pfHashFunction)(const char *key);
+
+typedef struct sPfHashSetNode {
   char *key;
-  TStringList *data;
-  struct sPfHashNode *next;
+  struct sPfHashSetNode *next;
   uint32_t hash;
-} pfHashNode;
+} pfHashSetNode;
 
 typedef struct {
-  uint32_t (*fn)(const char *);
-  uint32_t numEntries;
-  pfHashNode *lookup[];
-} pfHashTable;
+  pfHashFunction fn;
+  uint32_t bucketCount;
+  size_t keyCount;
+  pfHashSetNode *lookup[];
+} pfHashSet;
 
-extern TStringList *StringListAdd(TStringList *head, const char *data);
-extern bool StringListFind(TStringList *head, const char *value);
-extern void StringListDestroy(TStringList *head);
-extern bool pfHashCheckExists(pfHashTable *tbl, const char *key,
-                              const char *value);
+typedef struct sPfHashMapNode {
+  char *key;
+  pfHashSet *values;
+  struct sPfHashMapNode *next;
+  uint32_t hash;
+} pfHashMapNode;
 
-pfHashTable *pfHashCreate(uint32_t (*)(const char *), uint32_t numEntries);
-extern void pfHashDestroy(pfHashTable *tbl);
-extern bool pfHashSet(pfHashTable *tbl, const char *key, const char *value);
-extern bool pfHashDel(pfHashTable *tbl, const char *key);
-extern TStringList *pfHashFind(const pfHashTable *tbl, const char *key);
-extern bool pfHashCheckKey(const pfHashTable *tbl, const char *key);
-extern void pfHashDebug(pfHashTable *tbl, const char *desc);
+/* Maps each string key to an owned, dynamically sized string set. */
+typedef struct {
+  pfHashFunction fn;
+  uint32_t bucketCount;
+  size_t keyCount;
+  pfHashMapNode *lookup[];
+} pfHashMap;
+
+pfHashSet *pfHashSetCreate(pfHashFunction fn, uint32_t bucketCount);
+void pfHashSetDestroy(pfHashSet *set);
+bool pfHashSetAdd(pfHashSet *set, const char *key);
+bool pfHashSetDelete(pfHashSet *set, const char *key);
+bool pfHashSetContains(const pfHashSet *set, const char *key);
+
+/* Transfers all source nodes into destination; source remains owned and empty. */
+void pfHashSetMoveEntries(pfHashSet *destination, pfHashSet *source);
+
+pfHashMap *pfHashMapCreate(pfHashFunction fn, uint32_t bucketCount);
+void pfHashMapDestroy(pfHashMap *map);
+bool pfHashMapAdd(pfHashMap *map, const char *key, const char *value);
+bool pfHashMapContains(const pfHashMap *map, const char *key,
+                       const char *value);
+
+/* Returns a borrowed value set whose lifetime is bounded by map. */
+const pfHashSet *pfHashMapFind(const pfHashMap *map, const char *key);
+
+/* Preallocates any value-set growth needed for a subsequent move. */
+bool pfHashMapPrepareMoveEntries(pfHashMap *destination,
+                                 const pfHashMap *source);
+
+/* Transfers all source entries into destination; source remains owned/empty. */
+void pfHashMapMoveEntries(pfHashMap *destination, pfHashMap *source);
+
+#endif

@@ -221,11 +221,13 @@ static MunitResult TestClearZapretContext(const MunitParameter parameters[],
   munit_assert_not_null(context.dnsThreadsContext[0]);
   context.dnsThreadsContext[0]->redirectSocket = -1;
 
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    context.hashTables[i] = pfHashCreate(NULL, 7);
-    munit_assert_not_null(context.hashTables[i]);
-    munit_assert_true(pfHashSet(context.hashTables[i], "key", "value"));
-  }
+  const uint32_t bucketCounts[NETFILTER_TYPE_COUNT] = {7, 7, 7};
+  munit_assert_true(
+      InitializeZapretBlacklist(&context.blacklist, bucketCounts));
+  munit_assert_true(
+      pfHashMapAdd(context.blacklist.httpRules, "host", "/path"));
+  munit_assert_true(pfHashSetAdd(context.blacklist.dnsNames, "dns"));
+  munit_assert_true(pfHashSetAdd(context.blacklist.ipAddresses, "ip"));
 
   ClearZapretContext(&context);
   const TZapretContext empty = {0};

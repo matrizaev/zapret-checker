@@ -111,44 +111,58 @@ static uint32_t CollidingHash(const char *key) {
   return 1;
 }
 
-static size_t StringListLength(const TStringList *list) {
-  size_t length = 0;
-
-  while (list != NULL) {
-    length++;
-    list = list->next;
-  }
-  return length;
-}
-
 static MunitResult TestHashTableOperationsAndCollisions(
     const MunitParameter parameters[], void *fixture) {
-  pfHashTable *table = pfHashCreate(CollidingHash, 4);
+  pfHashSet *set = pfHashSetCreate(CollidingHash, 4);
+  pfHashSet *sourceSet = pfHashSetCreate(CollidingHash, 4);
+  pfHashMap *map = pfHashMapCreate(CollidingHash, 4);
+  pfHashMap *sourceMap = pfHashMapCreate(CollidingHash, 4);
+  const pfHashSet *values = NULL;
 
   (void)parameters;
   (void)fixture;
 
-  munit_assert_not_null(table);
-  munit_assert_true(pfHashSet(table, "alpha", "one"));
-  munit_assert_true(pfHashSet(table, "alpha", "two"));
-  munit_assert_true(pfHashSet(table, "alpha", "one"));
-  munit_assert_true(pfHashSet(table, "beta", NULL));
+  munit_assert_not_null(set);
+  munit_assert_not_null(sourceSet);
+  munit_assert_not_null(map);
+  munit_assert_not_null(sourceMap);
+  munit_assert_true(pfHashSetAdd(set, "alpha"));
+  munit_assert_true(pfHashSetAdd(set, "beta"));
+  munit_assert_true(pfHashSetAdd(set, "alpha"));
+  munit_assert_size(set->keyCount, ==, 2);
+  munit_assert_true(pfHashSetContains(set, "alpha"));
+  munit_assert_true(pfHashSetContains(set, "beta"));
+  munit_assert_false(pfHashSetContains(set, "missing"));
+  munit_assert_true(pfHashSetDelete(set, "alpha"));
+  munit_assert_false(pfHashSetContains(set, "alpha"));
+  munit_assert_false(pfHashSetDelete(set, "alpha"));
+  munit_assert_true(pfHashSetAdd(sourceSet, "gamma"));
+  pfHashSetMoveEntries(set, sourceSet);
+  munit_assert_true(pfHashSetContains(set, "gamma"));
+  munit_assert_size(sourceSet->keyCount, ==, 0);
 
-  munit_assert_true(pfHashCheckKey(table, "alpha"));
-  munit_assert_true(pfHashCheckExists(table, "alpha", "one"));
-  munit_assert_true(pfHashCheckExists(table, "alpha", "two"));
-  munit_assert_size(StringListLength(pfHashFind(table, "alpha")), ==, 2);
+  munit_assert_true(pfHashMapAdd(map, "example.com", "one"));
+  munit_assert_true(pfHashMapAdd(map, "example.com", "two"));
+  munit_assert_true(pfHashMapAdd(map, "example.com", "one"));
+  munit_assert_true(pfHashMapContains(map, "example.com", "one"));
+  munit_assert_true(pfHashMapContains(map, "example.com", "two"));
+  munit_assert_false(pfHashMapContains(map, "example.com", "missing"));
+  values = pfHashMapFind(map, "example.com");
+  munit_assert_not_null(values);
+  munit_assert_size(values->keyCount, ==, 2);
+  munit_assert_null(pfHashMapFind(map, "missing.example"));
+  munit_assert_true(pfHashMapAdd(sourceMap, "example.com", "three"));
+  munit_assert_true(pfHashMapAdd(sourceMap, "other.example", "/"));
+  munit_assert_true(pfHashMapPrepareMoveEntries(map, sourceMap));
+  pfHashMapMoveEntries(map, sourceMap);
+  munit_assert_true(pfHashMapContains(map, "example.com", "three"));
+  munit_assert_true(pfHashMapContains(map, "other.example", "/"));
+  munit_assert_size(sourceMap->keyCount, ==, 0);
 
-  munit_assert_true(pfHashCheckKey(table, "beta"));
-  munit_assert_null(pfHashFind(table, "beta"));
-  munit_assert_false(pfHashCheckKey(table, "missing"));
-
-  munit_assert_true(pfHashDel(table, "alpha"));
-  munit_assert_false(pfHashCheckKey(table, "alpha"));
-  munit_assert_true(pfHashCheckKey(table, "beta"));
-  munit_assert_false(pfHashDel(table, "alpha"));
-
-  pfHashDestroy(table);
+  pfHashMapDestroy(sourceMap);
+  pfHashMapDestroy(map);
+  pfHashSetDestroy(sourceSet);
+  pfHashSetDestroy(set);
   return MUNIT_OK;
 }
 

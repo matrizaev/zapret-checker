@@ -94,14 +94,14 @@ static void PrepareDNSAnsPacket(uint8_t *redirectNetworkPacket,
  *                                            Запрос A     Класс IN       *
  * Результат: размер блока блока с DNS запросом.                          *
  *************************************************************************/
-static bool CheckDomain(const pfHashTable *domainTable, uint8_t *questionData,
+static bool CheckDomain(const pfHashSet *domainNames, uint8_t *questionData,
                         uint16_t dataLen, size_t *questionDataSize) {
   bool result = false;
 
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
-  if (questionData == NULL || domainTable == NULL || questionDataSize == NULL ||
+  if (questionData == NULL || domainNames == NULL || questionDataSize == NULL ||
       dataLen == 0)
     return false;
 
@@ -142,7 +142,7 @@ static bool CheckDomain(const pfHashTable *domainTable, uint8_t *questionData,
   len = *questionData;
   partDomain = questionData;
   while (len != 0 && result == false) {
-    result = pfHashCheckKey(domainTable, (char *)partDomain);
+    result = pfHashSetContains(domainNames, (char *)partDomain);
     partDomain += len + 1;
     len = *partDomain;
   }
@@ -159,7 +159,7 @@ bool ProcessRawPacketDNS(uint8_t *packet, size_t packetSize,
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
 
-  if (packet == NULL || threadData == NULL || threadData->hashTable == NULL ||
+  if (packet == NULL || threadData == NULL || threadData->blockedKeys == NULL ||
       threadData->redirectNetworkPacket == NULL || hwAddr == NULL ||
       packetSize < sizeof(struct iphdr))
     return false;
@@ -231,7 +231,8 @@ bool ProcessRawPacketDNS(uint8_t *packet, size_t packetSize,
   /*************************************************************************
    * Если запрос запрещён, подделываем ответ.                               *
    *************************************************************************/
-  if (CheckDomain(threadData->hashTable, packet, dataLen, &questionDataSize)) {
+  if (CheckDomain(threadData->blockedKeys, packet, dataLen,
+                  &questionDataSize)) {
     if (questionDataSize > UINT16_MAX - DNS_PACKET_SIZE ||
         threadData->redirectDataLen < DNS_PACKET_SIZE + questionDataSize)
       return false;

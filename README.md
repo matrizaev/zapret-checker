@@ -112,3 +112,10 @@ production parser releases unused glibc heap pages. The register parser streams
 the XML and retains only the current record instead of constructing a complete
 DOM. For custom blacklist overlays, parsed entries are staged and transferred
 without copying only after the document is complete and well formed.
+
+The in-memory indexes have distinct roles: DNS names and IP networks use
+key-only hash sets, while HTTP uses a host hash map whose values are dynamically
+sized URL hash sets. Consequently, HTTP rule lookup hashes both the host and URL
+instead of linearly scanning every URL registered for a host. Benchmark output
+includes `value_buckets`, `value_load_factor`, and `max_value_chain` for this
+second-level HTTP index.

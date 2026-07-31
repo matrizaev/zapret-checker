@@ -73,11 +73,15 @@ int __wrap_getaddrinfo(const char *node, const char *service,
   return 0;
 }
 
-pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
-                                        bool makeNSLookup,
-                                        char *timestampFile);
+bool InitializeZapretBlacklist(
+    TZapretBlacklist *blacklist,
+    const uint32_t bucketCounts[NETFILTER_TYPE_COUNT]);
+void DestroyZapretBlacklist(TZapretBlacklist *blacklist);
+TZapretBlacklist *ProcessRegisterZipArchive(char *registerZipArchive,
+                                            bool makeNSLookup,
+                                            char *timestampFile);
 bool ProcessRegisterCustomBlacklist(bool makeNSLookup, char *customBlackList,
-                                    pfHashTable **result);
+                                    TZapretBlacklist *result);
 
 static char *ReadFileContents(const char *path, size_t *length) {
   struct stat status;
@@ -220,36 +224,19 @@ error:
   return encoded;
 }
 
-static bool InitializeHashTables(pfHashTable *tables[NETFILTER_TYPE_COUNT]) {
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    tables[i] = pfHashCreate(NULL, 31);
-    if (tables[i] == NULL) {
-      for (size_t previous = 0; previous < i; previous++) {
-        pfHashDestroy(tables[previous]);
-        tables[previous] = NULL;
-      }
-      return false;
-    }
-  }
-  return true;
+static bool InitializeBlacklist(TZapretBlacklist *blacklist) {
+  static const uint32_t bucketCounts[NETFILTER_TYPE_COUNT] = {31, 31, 31};
+
+  return InitializeZapretBlacklist(blacklist, bucketCounts);
 }
 
-static void DestroyHashTables(pfHashTable *tables[NETFILTER_TYPE_COUNT]) {
-  if (tables == NULL)
-    return;
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    pfHashDestroy(tables[i]);
-    tables[i] = NULL;
-  }
-}
-
-static bool ContainsDomain(pfHashTable *table, const char *domain) {
+static bool ContainsDomain(const pfHashSet *dnsNames, const char *domain) {
   char buffer[256];
   uint8_t *dnsName = NULL;
   bool found = false;
   int written = 0;
 
-  if (table == NULL || domain == NULL)
+  if (dnsNames == NULL || domain == NULL)
     return false;
   written = snprintf(buffer, sizeof(buffer), ".%s", domain);
   if (written <= 0 || (size_t)written >= sizeof(buffer))
@@ -257,49 +244,49 @@ static bool ContainsDomain(pfHashTable *table, const char *domain) {
   dnsName = String2DNSNotation(buffer);
   if (dnsName == NULL)
     return false;
-  found = pfHashCheckKey(table, (char *)dnsName);
+  found = pfHashSetContains(dnsNames, (char *)dnsName);
   free(dnsName);
   return found;
 }
 
-static void AssertSanitizedRegisterContents(
-    pfHashTable *tables[NETFILTER_TYPE_COUNT]) {
-  munit_assert_true(pfHashCheckExists(
-      tables[NETFILTER_TYPE_HTTP], "example.com", "/blocked path"));
+static void AssertSanitizedRegisterContents(TZapretBlacklist *blacklist) {
+  munit_assert_true(pfHashMapContains(
+      blacklist->httpRules, "example.com", "/blocked path"));
   munit_assert_false(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS],
+      ContainsDomain(blacklist->dnsNames,
                      "ignored-because-url-was-present.example"));
   munit_assert_false(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.1"));
+      pfHashSetContains(blacklist->ipAddresses, "192.0.2.1"));
   munit_assert_true(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "standalone.example"));
+      ContainsDomain(blacklist->dnsNames, "standalone.example"));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "198.51.100.2"));
+      pfHashSetContains(blacklist->ipAddresses, "198.51.100.2"));
 }
 
 static MunitResult TestPlainRegisterDocuments(
     const MunitParameter parameters[], void *fixture) {
   static char blacklistPath[] = REGISTER_FIXTURE_DIRECTORY "/blacklist.xml";
   static char socialPath[] = REGISTER_FIXTURE_DIRECTORY "/social.xml";
-  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
+  TZapretBlacklist blacklist = {0};
 
   (void)parameters;
   (void)fixture;
 
-  munit_assert_true(InitializeHashTables(tables));
+  munit_assert_true(InitializeBlacklist(&blacklist));
   munit_assert_true(
-      ProcessRegisterCustomBlacklist(false, blacklistPath, tables));
-  AssertSanitizedRegisterContents(tables);
+      ProcessRegisterCustomBlacklist(false, blacklistPath, &blacklist));
+  AssertSanitizedRegisterContents(&blacklist);
 
-  munit_assert_true(ProcessRegisterCustomBlacklist(false, socialPath, tables));
   munit_assert_true(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "social.example"));
+      ProcessRegisterCustomBlacklist(false, socialPath, &blacklist));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "203.0.113.0/24"));
+      ContainsDomain(blacklist.dnsNames, "social.example"));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "2001:db8::/32"));
+      pfHashSetContains(blacklist.ipAddresses, "203.0.113.0/24"));
+  munit_assert_true(
+      pfHashSetContains(blacklist.ipAddresses, "2001:db8::/32"));
 
-  DestroyHashTables(tables);
+  DestroyZapretBlacklist(&blacklist);
   return MUNIT_OK;
 }
 
@@ -307,40 +294,42 @@ static MunitResult TestStreamingPreservesFieldOrder(
     const MunitParameter parameters[], void *fixture) {
   static char orderingPath[] =
       REGISTER_FIXTURE_DIRECTORY "/streaming-order.xml";
-  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
+  TZapretBlacklist blacklist = {0};
 
   (void)parameters;
   (void)fixture;
 
-  munit_assert_true(InitializeHashTables(tables));
-  munit_assert_true(pfHashSet(tables[NETFILTER_TYPE_HTTP], "order.example",
-                              "/existing"));
+  munit_assert_true(InitializeBlacklist(&blacklist));
   munit_assert_true(
-      ProcessRegisterCustomBlacklist(false, orderingPath, tables));
+      pfHashMapAdd(blacklist.httpRules, "order.example", "/existing"));
   munit_assert_true(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "before-url.example"));
+      ProcessRegisterCustomBlacklist(false, orderingPath, &blacklist));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.10"));
-  munit_assert_true(pfHashCheckExists(
-      tables[NETFILTER_TYPE_HTTP], "order.example", "/blocked path"));
-  munit_assert_true(pfHashCheckExists(
-      tables[NETFILTER_TYPE_HTTP], "order.example", "/existing"));
+      ContainsDomain(blacklist.dnsNames, "before-url.example"));
+  munit_assert_true(
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.10"));
+  munit_assert_true(pfHashMapContains(
+      blacklist.httpRules, "order.example", "/blocked path"));
+  munit_assert_true(pfHashMapContains(
+      blacklist.httpRules, "order.example", "/existing"));
+  munit_assert_uint32(
+      pfHashMapFind(blacklist.httpRules, "order.example")->bucketCount, >=, 3);
   munit_assert_false(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "after-url.example"));
+      ContainsDomain(blacklist.dnsNames, "after-url.example"));
   munit_assert_false(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.11"));
-  munit_assert_true(ContainsDomain(tables[NETFILTER_TYPE_DNS],
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.11"));
+  munit_assert_true(ContainsDomain(blacklist.dnsNames,
                                    "after-unsupported-url.example"));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "198.51.100.0/24"));
+      pfHashSetContains(blacklist.ipAddresses, "198.51.100.0/24"));
   munit_assert_true(
-      ProcessRegisterCustomBlacklist(false, orderingPath, tables));
-  munit_assert_true(pfHashCheckExists(
-      tables[NETFILTER_TYPE_HTTP], "order.example", "/blocked path"));
-  munit_assert_true(pfHashCheckExists(
-      tables[NETFILTER_TYPE_HTTP], "order.example", "/existing"));
+      ProcessRegisterCustomBlacklist(false, orderingPath, &blacklist));
+  munit_assert_true(pfHashMapContains(
+      blacklist.httpRules, "order.example", "/blocked path"));
+  munit_assert_true(pfHashMapContains(
+      blacklist.httpRules, "order.example", "/existing"));
 
-  DestroyHashTables(tables);
+  DestroyZapretBlacklist(&blacklist);
   return MUNIT_OK;
 }
 
@@ -350,28 +339,28 @@ static MunitResult TestInvalidCustomBlacklistIsAtomic(
       REGISTER_FIXTURE_DIRECTORY "/malformed.xml";
   static char emptyFieldPath[] =
       REGISTER_FIXTURE_DIRECTORY "/empty-field.xml";
-  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
+  TZapretBlacklist blacklist = {0};
 
   (void)parameters;
   (void)fixture;
 
-  munit_assert_true(InitializeHashTables(tables));
-  munit_assert_true(pfHashSet(tables[NETFILTER_TYPE_IP], "192.0.2.99", NULL));
+  munit_assert_true(InitializeBlacklist(&blacklist));
+  munit_assert_true(pfHashSetAdd(blacklist.ipAddresses, "192.0.2.99"));
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, malformedPath, tables));
-  munit_assert_false(ContainsDomain(tables[NETFILTER_TYPE_DNS],
+      ProcessRegisterCustomBlacklist(false, malformedPath, &blacklist));
+  munit_assert_false(ContainsDomain(blacklist.dnsNames,
                                     "must-not-be-committed.example"));
   munit_assert_false(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "203.0.113.20"));
+      pfHashSetContains(blacklist.ipAddresses, "203.0.113.20"));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.99"));
 
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, emptyFieldPath, tables));
+      ProcessRegisterCustomBlacklist(false, emptyFieldPath, &blacklist));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.99"));
 
-  DestroyHashTables(tables);
+  DestroyZapretBlacklist(&blacklist);
   return MUNIT_OK;
 }
 
@@ -404,46 +393,47 @@ static MunitResult TestDNSLookupAndRegisterEdgeCases(
       "  <content><domain>Standalone.Example</domain></content>\n"
       "</register>\n";
   char xmlPath[PATH_MAX] = "/tmp/zapret-register-edges-XXXXXX";
-  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
+  TZapretBlacklist blacklist = {0};
 
   (void)parameters;
   (void)fixture;
   nsLookupCount = 0;
   munit_assert_true(WriteTemporaryFile(xmlPath, xml, sizeof(xml) - 1));
-  munit_assert_true(InitializeHashTables(tables));
-  munit_assert_true(ProcessRegisterCustomBlacklist(true, xmlPath, tables));
+  munit_assert_true(InitializeBlacklist(&blacklist));
+  munit_assert_true(
+      ProcessRegisterCustomBlacklist(true, xmlPath, &blacklist));
 
   munit_assert_true(
-      pfHashCheckExists(tables[NETFILTER_TYPE_HTTP], "root.example", "/"));
-  munit_assert_true(pfHashCheckExists(tables[NETFILTER_TYPE_HTTP],
-                                      "split.example", "/blocked path"));
-  munit_assert_true(pfHashCheckExists(
-      tables[NETFILTER_TYPE_HTTP], "long.example",
+      pfHashMapContains(blacklist.httpRules, "root.example", "/"));
+  munit_assert_true(pfHashMapContains(blacklist.httpRules, "split.example",
+                                     "/blocked path"));
+  munit_assert_true(pfHashMapContains(
+      blacklist.httpRules, "long.example",
       "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       "aaaaaaaaaaaaaaaa"));
   munit_assert_false(
-      pfHashCheckKey(
-          tables[NETFILTER_TYPE_HTTP],
+      pfHashMapFind(
+          blacklist.httpRules,
           "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-          "bbbb.example"));
+          "bbbb.example") != NULL);
   munit_assert_false(
       ContainsDomain(
-          tables[NETFILTER_TYPE_DNS],
+          blacklist.dnsNames,
           "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
           "bbbb.example"));
   munit_assert_true(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "fallback.example"));
+      ContainsDomain(blacklist.dnsNames, "fallback.example"));
   munit_assert_true(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "standalone.example"));
+      ContainsDomain(blacklist.dnsNames, "standalone.example"));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "203.0.113.40"));
-  munit_assert_true(pfHashCheckExists(tables[NETFILTER_TYPE_IP],
-                                      "203.0.113.7", "standalone.example"));
-  munit_assert_true(pfHashCheckExists(tables[NETFILTER_TYPE_IP],
-                                      "203.0.113.8", "standalone.example"));
+      pfHashSetContains(blacklist.ipAddresses, "203.0.113.40"));
+  munit_assert_true(
+      pfHashSetContains(blacklist.ipAddresses, "203.0.113.7"));
+  munit_assert_true(
+      pfHashSetContains(blacklist.ipAddresses, "203.0.113.8"));
   munit_assert_size(nsLookupCount, ==, 2);
 
-  DestroyHashTables(tables);
+  DestroyZapretBlacklist(&blacklist);
   munit_assert_int(unlink(xmlPath), ==, 0);
   return MUNIT_OK;
 }
@@ -458,63 +448,63 @@ static MunitResult TestCustomBlacklistInputsAndInterruption(
       "/tmp/zapret-register-empty-element-XXXXXX";
   char emptyFilePath[PATH_MAX] = "/tmp/zapret-register-empty-file-XXXXXX";
   char missingPath[] = "/tmp/zapret-register-file-does-not-exist";
-  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
-  pfHashTable *savedTable = NULL;
+  TZapretBlacklist blacklist = {0};
+  pfHashSet *savedSet = NULL;
 
   (void)parameters;
   (void)fixture;
   unlink(missingPath);
-  munit_assert_true(InitializeHashTables(tables));
-  munit_assert_true(pfHashSet(tables[NETFILTER_TYPE_IP], "192.0.2.99", NULL));
+  munit_assert_true(InitializeBlacklist(&blacklist));
+  munit_assert_true(pfHashSetAdd(blacklist.ipAddresses, "192.0.2.99"));
 
-  munit_assert_true(ProcessRegisterCustomBlacklist(false, NULL, tables));
+  munit_assert_true(ProcessRegisterCustomBlacklist(false, NULL, &blacklist));
   munit_assert_true(ProcessRegisterCustomBlacklist(false, NULL, NULL));
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, missingPath, tables));
+      ProcessRegisterCustomBlacklist(false, missingPath, &blacklist));
   munit_assert_false(
       ProcessRegisterCustomBlacklist(false, blacklistPath, NULL));
 
-  savedTable = tables[NETFILTER_TYPE_DNS];
-  tables[NETFILTER_TYPE_DNS] = NULL;
+  savedSet = blacklist.dnsNames;
+  blacklist.dnsNames = NULL;
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, blacklistPath, tables));
-  tables[NETFILTER_TYPE_DNS] = savedTable;
+      ProcessRegisterCustomBlacklist(false, blacklistPath, &blacklist));
+  blacklist.dnsNames = savedSet;
 
-  savedTable = tables[NETFILTER_TYPE_DNS];
-  tables[NETFILTER_TYPE_DNS] = pfHashCreate(NULL, 0);
-  munit_assert_not_null(tables[NETFILTER_TYPE_DNS]);
+  savedSet = blacklist.dnsNames;
+  blacklist.dnsNames = calloc(1, sizeof(*blacklist.dnsNames));
+  munit_assert_not_null(blacklist.dnsNames);
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, blacklistPath, tables));
-  pfHashDestroy(tables[NETFILTER_TYPE_DNS]);
-  tables[NETFILTER_TYPE_DNS] = savedTable;
+      ProcessRegisterCustomBlacklist(false, blacklistPath, &blacklist));
+  pfHashSetDestroy(blacklist.dnsNames);
+  blacklist.dnsNames = savedSet;
 
   flagMatrixShutdown = 1;
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, blacklistPath, tables));
+      ProcessRegisterCustomBlacklist(false, blacklistPath, &blacklist));
   flagMatrixShutdown = 0;
   flagMatrixReconfigure = 1;
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, blacklistPath, tables));
+      ProcessRegisterCustomBlacklist(false, blacklistPath, &blacklist));
   flagMatrixReconfigure = 0;
   munit_assert_false(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "standalone.example"));
+      ContainsDomain(blacklist.dnsNames, "standalone.example"));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.99"));
 
   munit_assert_true(WriteTemporaryFile(emptyElementPath, emptyElementXml,
                                        sizeof(emptyElementXml) - 1));
   munit_assert_false(ProcessRegisterCustomBlacklist(
-      false, emptyElementPath, tables));
+      false, emptyElementPath, &blacklist));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.99"));
 
   munit_assert_true(WriteTemporaryFile(emptyFilePath, "", 0));
   munit_assert_false(
-      ProcessRegisterCustomBlacklist(false, emptyFilePath, tables));
+      ProcessRegisterCustomBlacklist(false, emptyFilePath, &blacklist));
   munit_assert_true(
-      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+      pfHashSetContains(blacklist.ipAddresses, "192.0.2.99"));
 
-  DestroyHashTables(tables);
+  DestroyZapretBlacklist(&blacklist);
   munit_assert_int(unlink(emptyElementPath), ==, 0);
   munit_assert_int(unlink(emptyFilePath), ==, 0);
   return MUNIT_OK;
@@ -542,7 +532,7 @@ static MunitResult TestZipArchiveFailureModes(
   char *fileContents = NULL;
   size_t encodedLength = 0;
   size_t contentsLength = 0;
-  pfHashTable **tables = NULL;
+  TZapretBlacklist *blacklist = NULL;
   int temporaryFD = -1;
 
   (void)parameters;
@@ -579,13 +569,13 @@ static MunitResult TestZipArchiveFailureModes(
 
   validEncoded = CreateZipFixture("DUMP.XML", validXml, &encodedLength);
   munit_assert_not_null(validEncoded);
-  tables = ProcessRegisterZipArchive(validEncoded, false, NULL);
-  munit_assert_not_null(tables);
+  blacklist = ProcessRegisterZipArchive(validEncoded, false, NULL);
+  munit_assert_not_null(blacklist);
   munit_assert_true(
-      ContainsDomain(tables[NETFILTER_TYPE_DNS], "zip.example"));
-  DestroyHashTables(tables);
-  free(tables);
-  tables = NULL;
+      ContainsDomain(blacklist->dnsNames, "zip.example"));
+  DestroyZapretBlacklist(blacklist);
+  free(blacklist);
+  blacklist = NULL;
 
   temporaryFD = mkstemp(missingTimestampPath);
   munit_assert_int(temporaryFD, >=, 0);
@@ -613,7 +603,7 @@ static MunitResult TestBase64ZipRegister(
   size_t encodedLength = 0;
   ssize_t timestampLength = 0;
   int timestampFD = -1;
-  pfHashTable **tables = NULL;
+  TZapretBlacklist *blacklist = NULL;
 
   (void)parameters;
   (void)fixture;
@@ -630,15 +620,15 @@ static MunitResult TestBase64ZipRegister(
   munit_assert_int(close(timestampFD), ==, 0);
   timestampFD = -1;
 
-  tables = ProcessRegisterZipArchive(encodedArchive, false, timestampPath);
-  munit_assert_not_null(tables);
-  munit_assert_uint32(tables[NETFILTER_TYPE_HTTP]->numEntries, ==,
+  blacklist = ProcessRegisterZipArchive(encodedArchive, false, timestampPath);
+  munit_assert_not_null(blacklist);
+  munit_assert_uint32(blacklist->httpRules->bucketCount, ==,
                       ZAPRET_HTTP_HASH_BUCKET_COUNT);
-  munit_assert_uint32(tables[NETFILTER_TYPE_DNS]->numEntries, ==,
+  munit_assert_uint32(blacklist->dnsNames->bucketCount, ==,
                       ZAPRET_DNS_HASH_BUCKET_COUNT);
-  munit_assert_uint32(tables[NETFILTER_TYPE_IP]->numEntries, ==,
+  munit_assert_uint32(blacklist->ipAddresses->bucketCount, ==,
                       ZAPRET_IP_HASH_BUCKET_COUNT);
-  AssertSanitizedRegisterContents(tables);
+  AssertSanitizedRegisterContents(blacklist);
   timestampFD = open(timestampPath, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
   munit_assert_int(timestampFD, >=, 0);
   timestampLength = read(timestampFD, timestamp, sizeof(timestamp) - 1);
@@ -649,8 +639,8 @@ static MunitResult TestBase64ZipRegister(
   munit_assert_string_equal(timestamp, "2024-01-02T03:04:05+00:00");
   munit_assert_int(unlink(timestampPath), ==, 0);
 
-  DestroyHashTables(tables);
-  free(tables);
+  DestroyZapretBlacklist(blacklist);
+  free(blacklist);
   free(encodedArchive);
   Base64Cleanup();
   return MUNIT_OK;

@@ -35,8 +35,12 @@ typedef struct {
   size_t nonemptyBucketCount;
   size_t maxChainLength;
   size_t maxValuesPerKey;
+  size_t valueBucketCount;
+  size_t valueNonemptyBucketCount;
+  size_t maxValueChainLength;
   size_t estimatedBytes;
   long double successfulProbeTotal;
+  long double valueSuccessfulProbeTotal;
   uint64_t fingerprintXor;
   uint64_t fingerprintSum;
 } TTableStats;
@@ -257,25 +261,27 @@ static void AddFingerprint(TTableStats *stats, const char *key,
   stats->fingerprintSum += hash;
 }
 
-static bool GatherTableStats(const pfHashTable *table, TTableStats *stats) {
+static bool AddSetStorageStats(const pfHashSet *set, TTableStats *stats,
+                               const char *mapKey, bool countAsValues) {
   size_t bucketBytes = 0;
 
-  if (table == NULL || stats == NULL || table->numEntries == 0)
+  if (set == NULL || stats == NULL || set->bucketCount == 0)
     return false;
-  memset(stats, 0, sizeof(*stats));
-  if (!MultiplySize(table->numEntries, sizeof(pfHashNode *), &bucketBytes) ||
-      !AddSize(&stats->estimatedBytes, sizeof(*table)) ||
+  if (!MultiplySize(set->bucketCount, sizeof(set->lookup[0]), &bucketBytes) ||
+      !AddSize(&stats->estimatedBytes, sizeof(*set)) ||
       !AddSize(&stats->estimatedBytes, bucketBytes))
     return false;
 
-  for (uint32_t i = 0; i < table->numEntries; i++) {
+  if (countAsValues &&
+      !AddSize(&stats->valueBucketCount, set->bucketCount))
+    return false;
+  for (uint32_t i = 0; i < set->bucketCount; i++) {
     size_t chainLength = 0;
-    for (const pfHashNode *node = table->lookup[i]; node != NULL;
+    for (const pfHashSetNode *node = set->lookup[i]; node != NULL;
          node = node->next) {
-      size_t valuesForKey = 0;
       size_t keyBytes = 0;
 
-      if (node->key == NULL || stats->keyCount == SIZE_MAX)
+      if (node->key == NULL)
         return false;
       keyBytes = strlen(node->key);
       if (keyBytes == SIZE_MAX || chainLength == SIZE_MAX)
@@ -284,28 +290,78 @@ static bool GatherTableStats(const pfHashTable *table, TTableStats *stats) {
       if (!AddSize(&stats->estimatedBytes, sizeof(*node)) ||
           !AddSize(&stats->estimatedBytes, keyBytes))
         return false;
+      chainLength++;
+      if (countAsValues) {
+        if (mapKey == NULL || stats->valueCount == SIZE_MAX)
+          return false;
+        stats->valueCount++;
+        AddFingerprint(stats, mapKey, node->key);
+      } else {
+        if (stats->keyCount == SIZE_MAX)
+          return false;
+        stats->keyCount++;
+        AddFingerprint(stats, node->key, NULL);
+      }
+    }
+    if (chainLength > 0) {
+      if (countAsValues) {
+        stats->valueNonemptyBucketCount++;
+        stats->valueSuccessfulProbeTotal +=
+            ((long double)chainLength * (chainLength + 1)) / 2.0L;
+        if (chainLength > stats->maxValueChainLength)
+          stats->maxValueChainLength = chainLength;
+      } else {
+        stats->nonemptyBucketCount++;
+        stats->successfulProbeTotal +=
+            ((long double)chainLength * (chainLength + 1)) / 2.0L;
+        if (chainLength > stats->maxChainLength)
+          stats->maxChainLength = chainLength;
+      }
+    }
+  }
+  return true;
+}
+
+static bool GatherSetStats(const pfHashSet *set, TTableStats *stats) {
+  if (stats == NULL)
+    return false;
+  memset(stats, 0, sizeof(*stats));
+  return AddSetStorageStats(set, stats, NULL, false);
+}
+
+static bool GatherHTTPStats(const pfHashMap *map, TTableStats *stats) {
+  size_t bucketBytes = 0;
+
+  if (map == NULL || stats == NULL || map->bucketCount == 0)
+    return false;
+  memset(stats, 0, sizeof(*stats));
+  if (!MultiplySize(map->bucketCount, sizeof(map->lookup[0]), &bucketBytes) ||
+      !AddSize(&stats->estimatedBytes, sizeof(*map)) ||
+      !AddSize(&stats->estimatedBytes, bucketBytes))
+    return false;
+
+  for (uint32_t i = 0; i < map->bucketCount; i++) {
+    size_t chainLength = 0;
+    for (const pfHashMapNode *node = map->lookup[i]; node != NULL;
+         node = node->next) {
+      size_t keyBytes = 0;
+
+      if (node->key == NULL || node->values == NULL ||
+          stats->keyCount == SIZE_MAX)
+        return false;
+      keyBytes = strlen(node->key);
+      if (keyBytes == SIZE_MAX || chainLength == SIZE_MAX)
+        return false;
+      keyBytes++;
+      if (!AddSize(&stats->estimatedBytes, sizeof(*node)) ||
+          !AddSize(&stats->estimatedBytes, keyBytes) ||
+          !AddSetStorageStats(node->values, stats, node->key, true))
+        return false;
       stats->keyCount++;
       chainLength++;
       AddFingerprint(stats, node->key, NULL);
-
-      for (const TStringList *value = node->data; value != NULL;
-           value = value->next) {
-        size_t valueBytes = 0;
-        if (value->value == NULL || stats->valueCount == SIZE_MAX)
-          return false;
-        valueBytes = strlen(value->value);
-        if (valueBytes == SIZE_MAX || valuesForKey == SIZE_MAX)
-          return false;
-        valueBytes++;
-        if (!AddSize(&stats->estimatedBytes, sizeof(*value)) ||
-            !AddSize(&stats->estimatedBytes, valueBytes))
-          return false;
-        stats->valueCount++;
-        valuesForKey++;
-        AddFingerprint(stats, node->key, value->value);
-      }
-      if (valuesForKey > stats->maxValuesPerKey)
-        stats->maxValuesPerKey = valuesForKey;
+      if (node->values->keyCount > stats->maxValuesPerKey)
+        stats->maxValuesPerKey = node->values->keyCount;
     }
     if (chainLength > 0) {
       stats->nonemptyBucketCount++;
@@ -398,14 +454,13 @@ static int CompareSampleCandidates(const void *left, const void *right) {
   return strcmp(leftCandidate->value, rightCandidate->value);
 }
 
-static bool CollectSamples(const pfHashTable *table, TTableSamples *samples,
-                           size_t keyTotal, size_t ruleTotal,
-                           uint64_t randomSeed) {
+static bool CollectSetSamples(const pfHashSet *set, TTableSamples *samples,
+                              size_t keyTotal, uint64_t randomSeed) {
   TSampleCandidate *candidates = NULL;
   size_t bytes = 0;
   size_t candidateCount = 0;
 
-  if (table == NULL || samples == NULL)
+  if (set == NULL || samples == NULL)
     return false;
   if (keyTotal > 0) {
     if (!MultiplySize(keyTotal, sizeof(*candidates), &bytes))
@@ -413,8 +468,50 @@ static bool CollectSamples(const pfHashTable *table, TTableSamples *samples,
     candidates = malloc(bytes);
     if (candidates == NULL)
       return false;
-    for (uint32_t i = 0; i < table->numEntries; i++) {
-      for (const pfHashNode *node = table->lookup[i]; node != NULL;
+    for (uint32_t i = 0; i < set->bucketCount; i++) {
+      for (const pfHashSetNode *node = set->lookup[i]; node != NULL;
+           node = node->next) {
+        if (candidateCount >= keyTotal)
+          goto error;
+        candidates[candidateCount++] = (TSampleCandidate){
+            .key = node->key,
+            .rank = SampleRank(node->key, NULL, randomSeed),
+        };
+      }
+    }
+    if (candidateCount != keyTotal)
+      goto error;
+    qsort(candidates, candidateCount, sizeof(*candidates),
+          CompareSampleCandidates);
+    for (size_t i = 0; i < samples->keyCapacity; i++)
+      samples->keys[i] = candidates[i].key;
+    samples->keyCount = samples->keyCapacity;
+    free(candidates);
+  }
+  return true;
+
+error:
+  free(candidates);
+  return false;
+}
+
+static bool CollectMapSamples(const pfHashMap *map, TTableSamples *samples,
+                              size_t keyTotal, size_t ruleTotal,
+                              uint64_t randomSeed) {
+  TSampleCandidate *candidates = NULL;
+  size_t bytes = 0;
+  size_t candidateCount = 0;
+
+  if (map == NULL || samples == NULL)
+    return false;
+  if (keyTotal > 0) {
+    if (!MultiplySize(keyTotal, sizeof(*candidates), &bytes))
+      return false;
+    candidates = malloc(bytes);
+    if (candidates == NULL)
+      return false;
+    for (uint32_t i = 0; i < map->bucketCount; i++) {
+      for (const pfHashMapNode *node = map->lookup[i]; node != NULL;
            node = node->next) {
         if (candidateCount >= keyTotal)
           goto error;
@@ -442,18 +539,21 @@ static bool CollectSamples(const pfHashTable *table, TTableSamples *samples,
     candidates = malloc(bytes);
     if (candidates == NULL)
       return false;
-    for (uint32_t i = 0; i < table->numEntries; i++) {
-      for (const pfHashNode *node = table->lookup[i]; node != NULL;
+    for (uint32_t i = 0; i < map->bucketCount; i++) {
+      for (const pfHashMapNode *node = map->lookup[i]; node != NULL;
            node = node->next) {
-        for (const TStringList *value = node->data; value != NULL;
+        for (uint32_t j = 0; j < node->values->bucketCount; j++) {
+          for (const pfHashSetNode *value = node->values->lookup[j];
+               value != NULL;
              value = value->next) {
-          if (candidateCount >= ruleTotal)
-            goto error;
-          candidates[candidateCount++] = (TSampleCandidate){
-              .key = node->key,
-              .value = value->value,
-              .rank = SampleRank(node->key, value->value, randomSeed),
-          };
+            if (candidateCount >= ruleTotal)
+              goto error;
+            candidates[candidateCount++] = (TSampleCandidate){
+                .key = node->key,
+                .value = value->key,
+                .rank = SampleRank(node->key, value->key, randomSeed),
+            };
+          }
         }
       }
     }
@@ -499,7 +599,24 @@ static char *CreateMissKeys(const char *tableName, size_t count) {
   return keys;
 }
 
-static void WarmKeyLookups(const pfHashTable *table,
+static bool ContainsTableKey(const TZapretBlacklist *blacklist,
+                             TNetfilterType type, const char *key) {
+  if (blacklist == NULL || key == NULL)
+    return false;
+  switch (type) {
+  case NETFILTER_TYPE_HTTP:
+    return pfHashMapFind(blacklist->httpRules, key) != NULL;
+  case NETFILTER_TYPE_DNS:
+    return pfHashSetContains(blacklist->dnsNames, key);
+  case NETFILTER_TYPE_IP:
+    return pfHashSetContains(blacklist->ipAddresses, key);
+  default:
+    return false;
+  }
+}
+
+static void WarmKeyLookups(const TZapretBlacklist *blacklist,
+                           TNetfilterType type,
                            const TTableSamples *samples, const char *missKeys,
                            size_t queryCount, uint64_t randomSeed) {
   size_t warmupCount = queryCount < 10000 ? queryCount : 10000;
@@ -508,14 +625,16 @@ static void WarmKeyLookups(const pfHashTable *table,
 
   for (size_t i = 0; i < warmupCount; i++) {
     size_t index = (size_t)(NextRandom(&state) % samples->keyCount);
-    found += pfHashCheckKey(table, samples->keys[index]);
-    found += pfHashCheckKey(table, missKeys + index * MISS_KEY_SIZE);
+    found += ContainsTableKey(blacklist, type, samples->keys[index]);
+    found += ContainsTableKey(blacklist, type,
+                              missKeys + index * MISS_KEY_SIZE);
   }
   (void)found;
 }
 
 static void RunKeyLookup(const char *tableName, const char *operation,
-                         const pfHashTable *table,
+                         const TZapretBlacklist *blacklist,
+                         TNetfilterType type,
                          const TTableSamples *samples, const char *missKeys,
                          size_t queryCount, uint64_t randomSeed, bool hit) {
   struct timespec start;
@@ -529,7 +648,7 @@ static void RunKeyLookup(const char *tableName, const char *operation,
     size_t index = (size_t)(NextRandom(&state) % samples->keyCount);
     const char *key =
         hit ? samples->keys[index] : missKeys + index * MISS_KEY_SIZE;
-    found += pfHashCheckKey(table, key);
+    found += ContainsTableKey(blacklist, type, key);
   }
   clock_gettime(CLOCK_MONOTONIC, &end);
   elapsed = ElapsedNanoseconds(&start, &end);
@@ -540,7 +659,7 @@ static void RunKeyLookup(const char *tableName, const char *operation,
          (double)queryCount * 1000.0 / (double)elapsed);
 }
 
-static void RunRuleLookup(const char *operation, const pfHashTable *table,
+static void RunRuleLookup(const char *operation, const pfHashMap *httpRules,
                           const TTableSamples *samples, size_t queryCount,
                           uint64_t randomSeed, bool hit) {
   static const char missingValue[] =
@@ -555,7 +674,7 @@ static void RunRuleLookup(const char *operation, const pfHashTable *table,
   for (size_t i = 0; i < queryCount; i++) {
     size_t index = (size_t)(NextRandom(&state) % samples->ruleCount);
     const TRuleSample *sample = &samples->rules[index];
-    found += pfHashCheckExists((pfHashTable *)table, sample->key,
+    found += pfHashMapContains(httpRules, sample->key,
                                hit ? sample->value : missingValue);
   }
   clock_gettime(CLOCK_MONOTONIC, &end);
@@ -567,18 +686,9 @@ static void RunRuleLookup(const char *operation, const pfHashTable *table,
          (double)queryCount * 1000.0 / (double)elapsed);
 }
 
-static void DestroyTables(pfHashTable *tables[NETFILTER_TYPE_COUNT]) {
-  if (tables == NULL)
-    return;
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    pfHashDestroy(tables[i]);
-    tables[i] = NULL;
-  }
-}
-
 int main(int argc, char **argv) {
   TBenchmarkOptions options;
-  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {NULL};
+  TZapretBlacklist blacklist = {0};
   TTableStats stats[NETFILTER_TYPE_COUNT];
   TTableSamples samples[NETFILTER_TYPE_COUNT];
   char *missKeys[NETFILTER_TYPE_COUNT] = {NULL};
@@ -616,18 +726,14 @@ int main(int argc, char **argv) {
          options.sampleCount, options.randomSeed);
   fflush(stdout);
 
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    tables[i] = pfHashCreate(NULL, options.bucketCounts[i]);
-    if (tables[i] == NULL) {
-      fprintf(stderr, "Cannot allocate %u buckets for the %s table.\n",
-              options.bucketCounts[i], tableNames[i]);
-      goto cleanup;
-    }
+  if (!InitializeZapretBlacklist(&blacklist, options.bucketCounts)) {
+    fprintf(stderr, "Cannot allocate blacklist tables.\n");
+    goto cleanup;
   }
 
   clock_gettime(CLOCK_MONOTONIC, &loadStart);
   if (!ProcessRegisterCustomBlacklist(false, (char *)options.inputPath,
-                                      tables)) {
+                                      &blacklist)) {
     fprintf(stderr, "Cannot parse blacklist '%s'.\n", options.inputPath);
     goto cleanup;
   }
@@ -648,10 +754,20 @@ int main(int argc, char **argv) {
     double averageNonemptyChain = 0.0;
     double averageSuccessfulProbes = 0.0;
     double averageValuesPerKey = 0.0;
+    double averageValueSuccessfulProbes = 0.0;
+    double valueLoadFactor = 0.0;
     size_t keySamples = 0;
     size_t ruleSamples = 0;
 
-    if (!GatherTableStats(tables[i], &stats[i])) {
+    if (i == NETFILTER_TYPE_HTTP) {
+      if (!GatherHTTPStats(blacklist.httpRules, &stats[i])) {
+        fprintf(stderr, "Cannot calculate statistics for the HTTP table.\n");
+        goto cleanup;
+      }
+    } else if (!GatherSetStats(i == NETFILTER_TYPE_DNS
+                                   ? blacklist.dnsNames
+                                   : blacklist.ipAddresses,
+                               &stats[i])) {
       fprintf(stderr, "Cannot calculate statistics for the %s table.\n",
               tableNames[i]);
       goto cleanup;
@@ -666,17 +782,27 @@ int main(int argc, char **argv) {
     if (stats[i].keyCount > 0)
       averageValuesPerKey =
           (double)stats[i].valueCount / stats[i].keyCount;
+    if (stats[i].valueBucketCount > 0)
+      valueLoadFactor =
+          (double)stats[i].valueCount / stats[i].valueBucketCount;
+    if (stats[i].valueCount > 0)
+      averageValueSuccessfulProbes = (double)(
+          stats[i].valueSuccessfulProbeTotal / stats[i].valueCount);
     printf("table name=%s buckets=%u keys=%zu values=%zu nonempty_buckets=%zu "
            "load_factor=%.6f average_nonempty_chain=%.6f max_chain=%zu "
            "average_successful_probes=%.6f average_unsuccessful_probes=%.6f "
            "average_values_per_key=%.6f max_values_per_key=%zu "
+           "value_buckets=%zu value_load_factor=%.6f "
+           "max_value_chain=%zu average_value_successful_probes=%.6f "
            "estimated_bytes=%zu fingerprint_xor=%016" PRIx64
            " fingerprint_sum=%016" PRIx64 "\n",
            tableNames[i], options.bucketCounts[i], stats[i].keyCount,
            stats[i].valueCount, stats[i].nonemptyBucketCount, loadFactor,
            averageNonemptyChain, stats[i].maxChainLength,
            averageSuccessfulProbes, loadFactor, averageValuesPerKey,
-           stats[i].maxValuesPerKey, stats[i].estimatedBytes,
+           stats[i].maxValuesPerKey, stats[i].valueBucketCount,
+           valueLoadFactor, stats[i].maxValueChainLength,
+           averageValueSuccessfulProbes, stats[i].estimatedBytes,
            stats[i].fingerprintXor, stats[i].fingerprintSum);
 
     keySamples = stats[i].keyCount < options.sampleCount
@@ -691,9 +817,15 @@ int main(int argc, char **argv) {
               tableNames[i]);
       goto cleanup;
     }
-    if (!CollectSamples(tables[i], &samples[i], stats[i].keyCount,
-                        stats[i].valueCount,
-                        options.randomSeed ^ ((uint64_t)i << 32))) {
+    if ((i == NETFILTER_TYPE_HTTP &&
+         !CollectMapSamples(blacklist.httpRules, &samples[i],
+                            stats[i].keyCount, stats[i].valueCount,
+                            options.randomSeed ^ ((uint64_t)i << 32))) ||
+        (i != NETFILTER_TYPE_HTTP &&
+         !CollectSetSamples(i == NETFILTER_TYPE_DNS ? blacklist.dnsNames
+                                                     : blacklist.ipAddresses,
+                            &samples[i], stats[i].keyCount,
+                            options.randomSeed ^ ((uint64_t)i << 32)))) {
       fprintf(stderr, "Cannot collect samples for the %s table.\n",
               tableNames[i]);
       goto cleanup;
@@ -714,16 +846,16 @@ int main(int argc, char **argv) {
       printf("query table=%s skipped=no_keys\n", tableNames[i]);
       continue;
     }
-    WarmKeyLookups(tables[i], &samples[i], missKeys[i], options.queryCount,
-                   seed);
-    RunKeyLookup(tableNames[i], "key_hit", tables[i], &samples[i], missKeys[i],
-                 options.queryCount, seed, true);
-    RunKeyLookup(tableNames[i], "key_miss", tables[i], &samples[i], missKeys[i],
-                 options.queryCount, seed, false);
+    WarmKeyLookups(&blacklist, (TNetfilterType)i, &samples[i], missKeys[i],
+                   options.queryCount, seed);
+    RunKeyLookup(tableNames[i], "key_hit", &blacklist, (TNetfilterType)i,
+                 &samples[i], missKeys[i], options.queryCount, seed, true);
+    RunKeyLookup(tableNames[i], "key_miss", &blacklist, (TNetfilterType)i,
+                 &samples[i], missKeys[i], options.queryCount, seed, false);
     if (i == NETFILTER_TYPE_HTTP && samples[i].ruleCount > 0) {
-      RunRuleLookup("rule_hit", tables[i], &samples[i], options.queryCount,
-                    seed, true);
-      RunRuleLookup("rule_miss_existing_host", tables[i], &samples[i],
+      RunRuleLookup("rule_hit", blacklist.httpRules, &samples[i],
+                    options.queryCount, seed, true);
+      RunRuleLookup("rule_miss_existing_host", blacklist.httpRules, &samples[i],
                     options.queryCount, seed, false);
     }
   }
@@ -735,7 +867,7 @@ cleanup:
     free(missKeys[i]);
     DestroySamples(&samples[i]);
   }
-  DestroyTables(tables);
+  DestroyZapretBlacklist(&blacklist);
   xmlCleanupParser();
   return exitCode;
 }

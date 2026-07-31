@@ -72,7 +72,8 @@ static void *NetfilterThread(void *data) {
   check(threadData != NULL, ERROR_STR_INVALIDINPUT);
   check(threadData->nfQueue != NULL && threadData->nfqHandle != NULL &&
             threadData->redirectNetworkPacket != NULL &&
-            threadData->hashTable != NULL,
+            ((threadData->httpRules != NULL) !=
+             (threadData->blockedKeys != NULL)),
         ERROR_STR_INVALIDINPUT);
 
   /*************************************************************************
@@ -277,16 +278,19 @@ void StopNetfilterProcessing(TNetfilterContext **context, size_t contextCount) {
 /*************************************************************************
  * Запускаем обработку трафика.                                           *
  *************************************************************************/
-void StartNetfilterProcessing(TNetfilterContext **context, size_t contextCount,
-                              pfHashTable *hashTable) {
+static void StartNetfilterProcessing(TNetfilterContext **context,
+                                     size_t contextCount,
+                                     const pfHashMap *httpRules,
+                                     const pfHashSet *blockedKeys) {
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
   if (contextCount == 0)
     return;
 
-  check(context != NULL && hashTable != NULL && flagMatrixShutdown != 1 &&
-            flagMatrixReconfigure != 1,
+  check(context != NULL && (httpRules != NULL || blockedKeys != NULL) &&
+            !(httpRules != NULL && blockedKeys != NULL) &&
+            flagMatrixShutdown != 1 && flagMatrixReconfigure != 1,
         ERROR_STR_INVALIDINPUT);
 
   flagMatrixReload = 0;
@@ -295,7 +299,8 @@ void StartNetfilterProcessing(TNetfilterContext **context, size_t contextCount,
    *************************************************************************/
   for (size_t i = 0; i < contextCount; i++) {
     check(context[i] != NULL, ERROR_STR_INVALIDINPUT);
-    context[i]->hashTable = hashTable;
+    context[i]->httpRules = httpRules;
+    context[i]->blockedKeys = blockedKeys;
     if (context[i]->threadId == 0) {
       check(pthread_create(&(context[i]->threadId), NULL, NetfilterThread,
                            context[i]) == 0,
@@ -304,4 +309,16 @@ void StartNetfilterProcessing(TNetfilterContext **context, size_t contextCount,
   }
 error:
   return;
+}
+
+void StartHTTPNetfilterProcessing(TNetfilterContext **context,
+                                  size_t contextCount,
+                                  const pfHashMap *httpRules) {
+  StartNetfilterProcessing(context, contextCount, httpRules, NULL);
+}
+
+void StartDNSNetfilterProcessing(TNetfilterContext **context,
+                                 size_t contextCount,
+                                 const pfHashSet *dnsNames) {
+  StartNetfilterProcessing(context, contextCount, NULL, dnsNames);
 }

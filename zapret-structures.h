@@ -56,18 +56,12 @@ typedef enum {
 #define ZAPRET_DNS_HASH_BUCKET_COUNT 2000003U
 #define ZAPRET_IP_HASH_BUCKET_COUNT 240007U
 
-static inline uint32_t ZapretHashBucketCount(TNetfilterType type) {
-  switch (type) {
-  case NETFILTER_TYPE_HTTP:
-    return ZAPRET_HTTP_HASH_BUCKET_COUNT;
-  case NETFILTER_TYPE_DNS:
-    return ZAPRET_DNS_HASH_BUCKET_COUNT;
-  case NETFILTER_TYPE_IP:
-    return ZAPRET_IP_HASH_BUCKET_COUNT;
-  default:
-    return 0;
-  }
-}
+/* Owns the three independent blacklist indexes. */
+typedef struct {
+  pfHashMap *httpRules;
+  pfHashSet *dnsNames;
+  pfHashSet *ipAddresses;
+} TZapretBlacklist;
 
 /*************************************************************************
  * Контекст последнего SMTP взаимодействия.                               *
@@ -82,7 +76,9 @@ typedef struct {
  * Контекст потока обработки трафика.                                     *
  *************************************************************************/
 typedef struct TNetfilterContextStruct {
-  pfHashTable *hashTable;
+  /* Borrowed; only the member matching nfqParseCallback is populated. */
+  const pfHashMap *httpRules;
+  const pfHashSet *blockedKeys;
   struct nfq_q_handle *nfQueue;
   uint8_t *redirectNetworkPacket;
   struct nfq_handle *nfqHandle;
@@ -139,7 +135,7 @@ typedef struct {
   TSMTPContext *smtpContext;
   TNetfilterContext **httpThreadsContext;
   TNetfilterContext **dnsThreadsContext;
-  pfHashTable *hashTables[NETFILTER_TYPE_COUNT];
+  TZapretBlacklist blacklist;
   xmlDocPtr requestXmlDoc;
   size_t redirectHTTPQueue;
   size_t redirectHTTPCount;

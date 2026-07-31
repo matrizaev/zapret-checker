@@ -32,12 +32,19 @@ extern void PerformSOAPCommunicationPrepared(
 extern bool SendSMTPMessage(TSMTPContext *smtpContext,
                             TSOAPContext *soapContext);
 
-extern pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
-                                               bool makeNSLookup,
-                                               char *timestampFile);
+/* Initializes an empty, owned blacklist. blacklist must contain NULL members. */
+extern bool InitializeZapretBlacklist(
+    TZapretBlacklist *blacklist,
+    const uint32_t bucketCounts[NETFILTER_TYPE_COUNT]);
+extern void DestroyZapretBlacklist(TZapretBlacklist *blacklist);
+
+/* Returns a newly allocated, owned blacklist or NULL on failure. */
+extern TZapretBlacklist *ProcessRegisterZipArchive(char *registerZipArchive,
+                                                   bool makeNSLookup,
+                                                   char *timestampFile);
 extern bool ProcessRegisterCustomBlacklist(bool makeNSLookup,
                                            char *customBlackList,
-                                           pfHashTable **result);
+                                           TZapretBlacklist *result);
 
 extern bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
                                  TNetfilterContext *threadData,
@@ -50,8 +57,11 @@ extern TNetfilterContext **
 InitNetfilterConfiguration(size_t count, char *redirectIface,
                            char *redirectHost, size_t netfilterQueue,
                            TNetfilterType threadType);
-extern void StartNetfilterProcessing(TNetfilterContext **context,
-                                     size_t contextCount,
-                                     pfHashTable *hashTable);
+extern void StartHTTPNetfilterProcessing(TNetfilterContext **context,
+                                         size_t contextCount,
+                                         const pfHashMap *httpRules);
+extern void StartDNSNetfilterProcessing(TNetfilterContext **context,
+                                        size_t contextCount,
+                                        const pfHashSet *dnsNames);
 extern void StopNetfilterProcessing(TNetfilterContext **context,
                                     size_t contextCount);

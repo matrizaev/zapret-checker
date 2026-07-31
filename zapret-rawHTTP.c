@@ -21,13 +21,13 @@
  * HeaderN: ValueN\r\n                                                    *
  * \r\n                                                                   *
  *************************************************************************/
-static bool CheckURL(pfHashTable *httpHashTable, uint8_t *httpPacket,
+static bool CheckURL(const pfHashMap *httpRules, uint8_t *httpPacket,
                      uint16_t dataLen) {
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
 
-  if (httpPacket == NULL || httpHashTable == NULL || dataLen <= 0)
+  if (httpPacket == NULL || httpRules == NULL || dataLen <= 0)
     return false;
 
   /*************************************************************************
@@ -99,7 +99,7 @@ static bool CheckURL(pfHashTable *httpHashTable, uint8_t *httpPacket,
      * Выполняем преобразование URL Decode над строкой.                       *
      *************************************************************************/
     DecodeURL(url);
-    if (pfHashCheckExists(httpHashTable, host, url)) {
+    if (pfHashMapContains(httpRules, host, url)) {
       return true;
     }
   } else if (strncasecmp(httpHeader, "http://", 7) == 0) {
@@ -120,15 +120,15 @@ static bool CheckURL(pfHashTable *httpHashTable, uint8_t *httpPacket,
     case ' ': {
       char *url = "/";
       *httpHeader = 0;
-      if (pfHashCheckExists(httpHashTable, host, url)) {
+      if (pfHashMapContains(httpRules, host, url)) {
         return true;
       }
       break;
     }
     case '/': {
       *httpHeader = '\0';
-      TStringList *data = pfHashFind(httpHashTable, host);
-      if (data == NULL)
+      const pfHashSet *urls = pfHashMapFind(httpRules, host);
+      if (urls == NULL)
         return false;
       *httpHeader = '/';
       char *url = httpHeader;
@@ -137,7 +137,7 @@ static bool CheckURL(pfHashTable *httpHashTable, uint8_t *httpPacket,
         return false;
       *httpHeader = '\0';
       DecodeURL(url);
-      if (StringListFind(data, url) == true) {
+      if (pfHashSetContains(urls, url)) {
         return true;
       }
       break;
@@ -250,7 +250,7 @@ bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
-  if (packet == NULL || threadData == NULL || threadData->hashTable == NULL ||
+  if (packet == NULL || threadData == NULL || threadData->httpRules == NULL ||
       threadData->redirectNetworkPacket == NULL || hwAddr == NULL ||
       packetSize < sizeof(struct iphdr))
     return false;
@@ -293,7 +293,7 @@ bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
    * Если запрос запрещён, подделываем ответ.                               *
    *************************************************************************/
   bool result = false;
-  if (CheckURL(threadData->hashTable, packet, dataLen)) {
+  if (CheckURL(threadData->httpRules, packet, dataLen)) {
     if (threadData->redirectDataLen <
             IP4_HDRLEN + sizeof(struct tcphdr) ||
         threadData->redirectDataLen > UINT16_MAX)

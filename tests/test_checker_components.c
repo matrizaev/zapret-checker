@@ -273,7 +273,7 @@ InitNetfilterConfiguration(size_t count, char *redirectIface,
   return result;
 }
 
-static bool HasDNSDomain(pfHashTable *table, const char *domain) {
+static bool HasDNSDomain(const pfHashSet *dnsNames, const char *domain) {
   char buffer[128];
   uint8_t *notation = NULL;
   bool result = false;
@@ -283,30 +283,34 @@ static bool HasDNSDomain(pfHashTable *table, const char *domain) {
   munit_assert_size((size_t)written, <, sizeof(buffer));
   notation = String2DNSNotation(buffer);
   munit_assert_not_null(notation);
-  result = pfHashCheckKey(table, (char *)notation);
+  result = pfHashSetContains(dnsNames, (char *)notation);
   free(notation);
   return result;
 }
 
-void StartNetfilterProcessing(TNetfilterContext **contexts, size_t count,
-                              pfHashTable *hashTable) {
+void StartHTTPNetfilterProcessing(TNetfilterContext **contexts, size_t count,
+                                  const pfHashMap *httpRules) {
   munit_assert_size(count, ==, 1);
-  munit_assert_not_null(contexts);
-  munit_assert_not_null(hashTable);
-  if (contexts == httpContexts) {
+  munit_assert_ptr_equal(contexts, httpContexts);
+  munit_assert_not_null(httpRules);
+  munit_assert_true(
+      pfHashMapContains(httpRules, "custom.example", "/local path"));
+  if (startCount >= 2) {
     munit_assert_true(
-        pfHashCheckExists(hashTable, "custom.example", "/local path"));
-    if (startCount >= 2) {
-      munit_assert_true(
-          pfHashCheckExists(hashTable, "example.com", "/blocked path"));
-      finalHTTPTableObserved = true;
-    }
-  } else {
-    munit_assert_ptr_equal(contexts, dnsContexts);
-    if (startCount >= 2) {
-      munit_assert_true(HasDNSDomain(hashTable, "standalone.example"));
-      finalDNSTableObserved = true;
-    }
+        pfHashMapContains(httpRules, "example.com", "/blocked path"));
+    finalHTTPTableObserved = true;
+  }
+  startCount++;
+}
+
+void StartDNSNetfilterProcessing(TNetfilterContext **contexts, size_t count,
+                                 const pfHashSet *dnsNames) {
+  munit_assert_size(count, ==, 1);
+  munit_assert_ptr_equal(contexts, dnsContexts);
+  munit_assert_not_null(dnsNames);
+  if (startCount >= 2) {
+    munit_assert_true(HasDNSDomain(dnsNames, "standalone.example"));
+    finalDNSTableObserved = true;
   }
   startCount++;
 }
@@ -409,25 +413,24 @@ void *__wrap_SendHTTPPost(const char *url, const void *payload,
   return result;
 }
 
-pfHashTable **__real_ProcessRegisterZipArchive(char *registerZipArchive,
-                                                bool makeNSLookup,
-                                                char *timestampFile);
-pfHashTable **__wrap_ProcessRegisterZipArchive(char *registerZipArchive,
-                                                bool makeNSLookup,
-                                                char *timestampFile) {
+TZapretBlacklist *__real_ProcessRegisterZipArchive(char *registerZipArchive,
+                                                   bool makeNSLookup,
+                                                   char *timestampFile);
+TZapretBlacklist *__wrap_ProcessRegisterZipArchive(char *registerZipArchive,
+                                                   bool makeNSLookup,
+                                                   char *timestampFile) {
   munit_assert_not_null(activeFixture);
   munit_assert_false(makeNSLookup);
   munit_assert_string_equal(timestampFile, activeFixture->timestampFile);
-  pfHashTable **result = __real_ProcessRegisterZipArchive(
+  TZapretBlacklist *result = __real_ProcessRegisterZipArchive(
       registerZipArchive, makeNSLookup, timestampFile);
   munit_assert_not_null(result);
   munit_assert_true(
-      pfHashCheckExists(result[NETFILTER_TYPE_HTTP], "example.com",
-                        "/blocked path"));
+      pfHashMapContains(result->httpRules, "example.com", "/blocked path"));
   munit_assert_true(
-      HasDNSDomain(result[NETFILTER_TYPE_DNS], "standalone.example"));
+      HasDNSDomain(result->dnsNames, "standalone.example"));
   munit_assert_true(
-      pfHashCheckKey(result[NETFILTER_TYPE_IP], "198.51.100.2"));
+      pfHashSetContains(result->ipAddresses, "198.51.100.2"));
   finalIPTableObserved = true;
   archiveProcessingCount++;
   return result;

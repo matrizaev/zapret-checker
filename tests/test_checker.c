@@ -125,54 +125,101 @@ static void ResetCheckerMocks(void) {
   flagMatrixReload = 0;
 }
 
-static pfHashTable *AllocateMockHash(void) {
-  pfHashTable *table = calloc(1, sizeof(*table) + sizeof(table->lookup[0]));
-  if (table == NULL)
+static pfHashSet *AllocateMockSet(void) {
+  pfHashSet *set = calloc(1, sizeof(*set) + sizeof(set->lookup[0]));
+  if (set == NULL)
     return NULL;
-  table->numEntries = 1;
-  return table;
+  set->bucketCount = 1;
+  return set;
 }
 
-pfHashTable *pfHashCreate(uint32_t (*hashFunction)(const char *),
-                          uint32_t numEntries) {
-  (void)hashFunction;
-  munit_assert_true(numEntries == ZAPRET_HTTP_HASH_BUCKET_COUNT ||
-                    numEntries == ZAPRET_DNS_HASH_BUCKET_COUNT ||
-                    numEntries == ZAPRET_IP_HASH_BUCKET_COUNT);
+static pfHashMap *AllocateMockMap(void) {
+  pfHashMap *map = calloc(1, sizeof(*map) + sizeof(map->lookup[0]));
+  if (map == NULL)
+    return NULL;
+  map->bucketCount = 1;
+  return map;
+}
+
+static bool MockHashCreationAllowed(void) {
   if ((int)hashCreateCount == failHashCreationAt) {
     hashCreateCount++;
-    return NULL;
+    return false;
   }
   hashCreateCount++;
   RecordEvent('H');
-  return AllocateMockHash();
+  return true;
 }
 
-void pfHashDestroy(pfHashTable *table) {
-  if (table == NULL)
+static void DestroyMockSet(pfHashSet *set) {
+  if (set == NULL)
     return;
   hashDestroyCount++;
   RecordEvent('D');
-  for (size_t i = 0; i < table->numEntries; i++) {
-    pfHashNode *node = table->lookup[i];
+  for (uint32_t i = 0; i < set->bucketCount; i++) {
+    pfHashSetNode *node = set->lookup[i];
     while (node != NULL) {
-      pfHashNode *next = node->next;
+      pfHashSetNode *next = node->next;
       free(node->key);
-      StringListDestroy(node->data);
       free(node);
       node = next;
     }
   }
-  free(table);
+  free(set);
 }
 
-void StringListDestroy(TStringList *head) {
-  while (head != NULL) {
-    TStringList *next = head->next;
-    free(head->value);
-    free(head);
-    head = next;
+static void DestroyMockMap(pfHashMap *map) {
+  if (map == NULL)
+    return;
+  hashDestroyCount++;
+  RecordEvent('D');
+  for (uint32_t i = 0; i < map->bucketCount; i++) {
+    pfHashMapNode *node = map->lookup[i];
+    while (node != NULL) {
+      pfHashMapNode *next = node->next;
+      free(node->key);
+      DestroyMockSet(node->values);
+      free(node);
+      node = next;
+    }
   }
+  free(map);
+}
+
+bool InitializeZapretBlacklist(
+    TZapretBlacklist *blacklist,
+    const uint32_t bucketCounts[NETFILTER_TYPE_COUNT]) {
+  munit_assert_not_null(blacklist);
+  munit_assert_not_null(bucketCounts);
+  munit_assert_uint32(bucketCounts[NETFILTER_TYPE_HTTP], ==,
+                      ZAPRET_HTTP_HASH_BUCKET_COUNT);
+  munit_assert_uint32(bucketCounts[NETFILTER_TYPE_DNS], ==,
+                      ZAPRET_DNS_HASH_BUCKET_COUNT);
+  munit_assert_uint32(bucketCounts[NETFILTER_TYPE_IP], ==,
+                      ZAPRET_IP_HASH_BUCKET_COUNT);
+  if (!MockHashCreationAllowed() ||
+      (blacklist->httpRules = AllocateMockMap()) == NULL)
+    goto error;
+  if (!MockHashCreationAllowed() ||
+      (blacklist->dnsNames = AllocateMockSet()) == NULL)
+    goto error;
+  if (!MockHashCreationAllowed() ||
+      (blacklist->ipAddresses = AllocateMockSet()) == NULL)
+    goto error;
+  return true;
+
+error:
+  DestroyZapretBlacklist(blacklist);
+  return false;
+}
+
+void DestroyZapretBlacklist(TZapretBlacklist *blacklist) {
+  if (blacklist == NULL)
+    return;
+  DestroyMockMap(blacklist->httpRules);
+  DestroyMockSet(blacklist->dnsNames);
+  DestroyMockSet(blacklist->ipAddresses);
+  memset(blacklist, 0, sizeof(*blacklist));
 }
 
 static void FreeSOAPFields(TSOAPContext *context) {
@@ -243,8 +290,7 @@ void ClearZapretContext(TZapretContext *context) {
   free(context->smtpContext);
   free(context->httpThreadsContext);
   free(context->dnsThreadsContext);
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++)
-    pfHashDestroy(context->hashTables[i]);
+  DestroyZapretBlacklist(&context->blacklist);
   if (context->requestXmlDoc != NULL)
     xmlFreeDoc(context->requestXmlDoc);
   free(context->blacklistHost);
@@ -296,26 +342,36 @@ bool ReadZapretConfiguration(TZapretContext *context,
 }
 
 bool ProcessRegisterCustomBlacklist(bool makeNSLookup, char *customBlacklist,
-                                    pfHashTable **tables) {
+                                    TZapretBlacklist *blacklist) {
   (void)makeNSLookup;
   munit_assert_string_equal(customBlacklist, "custom.xml");
-  munit_assert_not_null(tables);
+  munit_assert_not_null(blacklist);
   customBlacklistCount++;
   RecordEvent('B');
   return customBlacklistResult;
 }
 
-void StartNetfilterProcessing(TNetfilterContext **contexts, size_t count,
-                              pfHashTable *hashTable) {
+static void RecordNetfilterStart(TNetfilterContext **contexts, size_t count,
+                                 const void *blacklist) {
   if (count == 0) {
     munit_assert_null(contexts);
     return;
   }
   munit_assert_not_null(contexts);
   munit_assert_size(count, ==, 1);
-  munit_assert_not_null(hashTable);
+  munit_assert_not_null(blacklist);
   startCount++;
   RecordEvent('S');
+}
+
+void StartHTTPNetfilterProcessing(TNetfilterContext **contexts, size_t count,
+                                  const pfHashMap *httpRules) {
+  RecordNetfilterStart(contexts, count, httpRules);
+}
+
+void StartDNSNetfilterProcessing(TNetfilterContext **contexts, size_t count,
+                                 const pfHashSet *dnsNames) {
+  RecordNetfilterStart(contexts, count, dnsNames);
 }
 
 void StopNetfilterProcessing(TNetfilterContext **contexts, size_t count) {
@@ -356,8 +412,8 @@ bool SendSMTPMessage(TSMTPContext *smtpContext, TSOAPContext *soapContext) {
   return true;
 }
 
-pfHashTable **ProcessRegisterZipArchive(char *archive, bool makeNSLookup,
-                                        char *timestampFile) {
+TZapretBlacklist *ProcessRegisterZipArchive(char *archive, bool makeNSLookup,
+                                            char *timestampFile) {
   (void)makeNSLookup;
   (void)timestampFile;
   munit_assert_string_equal(archive, "archive");
@@ -365,13 +421,15 @@ pfHashTable **ProcessRegisterZipArchive(char *archive, bool makeNSLookup,
   RecordEvent('A');
   if (!archiveResultAvailable)
     return NULL;
-  pfHashTable **tables = calloc(NETFILTER_TYPE_COUNT, sizeof(*tables));
-  munit_assert_not_null(tables);
-  for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    tables[i] = AllocateMockHash();
-    munit_assert_not_null(tables[i]);
-  }
-  return tables;
+  TZapretBlacklist *blacklist = calloc(1, sizeof(*blacklist));
+  munit_assert_not_null(blacklist);
+  blacklist->httpRules = AllocateMockMap();
+  blacklist->dnsNames = AllocateMockSet();
+  blacklist->ipAddresses = AllocateMockSet();
+  munit_assert_not_null(blacklist->httpRules);
+  munit_assert_not_null(blacklist->dnsNames);
+  munit_assert_not_null(blacklist->ipAddresses);
+  return blacklist;
 }
 
 void Base64Cleanup(void) { RecordEvent('X'); }
@@ -547,11 +605,11 @@ static MunitResult TestSignalConfiguration(const MunitParameter parameters[],
   return MUNIT_OK;
 }
 
-static pfHashTable *BuildIpsetTable(void) {
-  pfHashTable *table = AllocateMockHash();
-  munit_assert_not_null(table);
-  pfHashNode *first = calloc(1, sizeof(*first));
-  pfHashNode *second = calloc(1, sizeof(*second));
+static pfHashSet *BuildIpsetTable(void) {
+  pfHashSet *set = AllocateMockSet();
+  munit_assert_not_null(set);
+  pfHashSetNode *first = calloc(1, sizeof(*first));
+  pfHashSetNode *second = calloc(1, sizeof(*second));
   munit_assert_not_null(first);
   munit_assert_not_null(second);
   first->key = strdup("192.0.2.0/24");
@@ -559,20 +617,21 @@ static pfHashTable *BuildIpsetTable(void) {
   munit_assert_not_null(first->key);
   munit_assert_not_null(second->key);
   first->next = second;
-  table->lookup[0] = first;
-  return table;
+  set->lookup[0] = first;
+  set->keyCount = 2;
+  return set;
 }
 
 static MunitResult TestIpsetSerialization(const MunitParameter parameters[],
                                           void *fixture) {
-  pfHashTable *table = NULL;
+  pfHashSet *ipAddresses = NULL;
 
   (void)parameters;
   (void)fixture;
   ResetCheckerMocks();
-  table = BuildIpsetTable();
+  ipAddresses = BuildIpsetTable();
   ipsetMockActive = true;
-  UpdateIpsetList("ZAPRET_MAIN", table);
+  UpdateIpsetList("ZAPRET_MAIN", ipAddresses);
   ipsetMockActive = false;
   munit_assert_not_null(ipsetOutput);
   munit_assert_not_null(strstr(
@@ -588,7 +647,7 @@ static MunitResult TestIpsetSerialization(const MunitParameter parameters[],
   munit_assert_size(forkCount, ==, 1);
   munit_assert_size(closeCount, ==, 1);
   munit_assert_size(waitCount, ==, 1);
-  pfHashDestroy(table);
+  DestroyMockSet(ipAddresses);
 
   UpdateIpsetList(NULL, NULL);
   return MUNIT_OK;
@@ -604,12 +663,12 @@ static MunitResult TestIpsetFailures(const MunitParameter parameters[],
   (void)fixture;
   for (size_t i = 0; i < sizeof(failures) / sizeof(failures[0]); i++) {
     ResetCheckerMocks();
-    pfHashTable *table = BuildIpsetTable();
+    pfHashSet *ipAddresses = BuildIpsetTable();
     ipsetFailure = failures[i];
     ipsetMockActive = true;
-    UpdateIpsetList("ZAPRET_MAIN", table);
+    UpdateIpsetList("ZAPRET_MAIN", ipAddresses);
     ipsetMockActive = false;
-    pfHashDestroy(table);
+    DestroyMockSet(ipAddresses);
   }
   return MUNIT_OK;
 }

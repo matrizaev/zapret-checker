@@ -4,308 +4,390 @@
 
 #include "errorstrings.h"
 
-static void PrintHashDebugged(const uint8_t *str) {
-  if (str != NULL) {
-    while (*str != 0) {
-      if (isalnum(*str) || *str == '-')
-        printf("%c ", *str);
-      else
-        printf("0x%02x ", *str);
-      str++;
-    }
-  }
-}
+#define INITIAL_VALUE_BUCKET_COUNT 1U
 
-static uint32_t defaultFnKnR(const char *key) {
+static uint32_t DefaultHash(const char *key) {
+  uint32_t hash = 0;
+
   if (key == NULL)
     return 0;
-
-  uint32_t hashval;
-  for (hashval = 0; *key != '\0'; key++)
-    hashval = (uint32_t)(*key) + 31 * hashval;
-  return hashval;
+  while (*key != '\0') {
+    hash = (uint32_t)(unsigned char)*key + 31U * hash;
+    key++;
+  }
+  return hash;
 }
 
-TStringList *StringListAdd(TStringList *head, const char *value) {
-  if (value == NULL || StringListFind(head, value) == true)
-    return head;
-  TStringList *prev = calloc(sizeof(TStringList), 1);
-  if (prev != NULL) {
-    if (head == NULL) {
-      head = prev;
-      prev->next = NULL;
-    } else {
-      prev->next = head;
-      head = prev;
-    }
-    head->value = strdup(value);
-    if (head->value != NULL) {
-      head->hash = defaultFnKnR(value);
-      return head;
-    }
+static bool HashAllocationSize(size_t headerSize, size_t bucketSize,
+                               uint32_t bucketCount, size_t *allocationSize) {
+  size_t bucketsSize = 0;
+
+  if (allocationSize == NULL || bucketCount == 0 ||
+      bucketCount > SIZE_MAX / bucketSize)
+    return false;
+  bucketsSize = (size_t)bucketCount * bucketSize;
+  if (bucketsSize > SIZE_MAX - headerSize)
+    return false;
+  *allocationSize = headerSize + bucketsSize;
+  return true;
+}
+
+static pfHashSetNode *FindSetNode(const pfHashSet *set, const char *key,
+                                  uint32_t hash, uint32_t *bucket) {
+  pfHashSetNode *node = NULL;
+  uint32_t entry = 0;
+
+  if (set == NULL || key == NULL || set->bucketCount == 0)
+    return NULL;
+  entry = hash % set->bucketCount;
+  if (bucket != NULL)
+    *bucket = entry;
+  node = set->lookup[entry];
+  while (node != NULL) {
+    if (node->hash == hash && strcmp(node->key, key) == 0)
+      return node;
+    node = node->next;
   }
-  StringListDestroy(head);
   return NULL;
 }
 
-bool StringListFind(TStringList *head, const char *value) {
+pfHashSet *pfHashSetCreate(pfHashFunction fn, uint32_t bucketCount) {
+  pfHashSet *set = NULL;
+  size_t allocationSize = 0;
 
-  if (value == NULL || head == NULL)
-    return false;
-  uint32_t hash = defaultFnKnR(value);
-  while (head != NULL) {
-    if (hash == head->hash) {
-      if (!strcmp(head->value, value))
-        return true;
-    }
-    head = head->next;
-  }
-  return false;
-}
-
-void StringListDestroy(TStringList *head) {
-  TStringList *temp = head;
-
-  while (head != NULL) {
-    temp = head;
-    head = head->next;
-    free(temp->value);
-    free(temp);
-  }
-  return;
-}
-
-// Local function to locate a key, will populate
-//   hash entry, node before and node matching.
-// If node matching is null, it wasn't found.
-// If node before is null, it was the first at that
-//   entry.
-
-static void locate(const pfHashTable *tbl, const char *key, int *pEntry,
-                   pfHashNode **pPrev, pfHashNode **pNode) {
-
-  if (tbl == NULL || key == NULL || pEntry == NULL || pPrev == NULL ||
-      pNode == NULL)
-    return;
-  // Get the hash entry as first step.
-  uint32_t hash = tbl->fn(key);
-  *pEntry = hash % tbl->numEntries;
-
-  // Iterate through list at that entry until
-  // you find key, or reach end.
-
-  *pPrev = NULL;
-  *pNode = tbl->lookup[*pEntry];
-  while (*pNode != NULL) {
-    if ((*pNode)->hash == hash)
-      if (strcmp(key, (*pNode)->key) == 0)
-        break;
-    *pPrev = *pNode;
-    *pNode = (*pNode)->next;
-  }
-}
-
-// Create a hash table, giving only the hashing
-//   function.
-
-pfHashTable *pfHashCreate(uint32_t (*fn)(const char *), uint32_t numEntries) {
-  // Use default if none given, and get number
-  //   of entries allowed.
-
-  if (fn == NULL)
-    fn = defaultFnKnR;
-
-  // Allocate the hash table, including entries
-  //   for lists of nodes.
-
-  pfHashTable *tbl =
-      malloc(sizeof(pfHashTable) + numEntries * sizeof(pfHashNode *));
-  if (tbl == NULL)
+  if (!HashAllocationSize(sizeof(*set), sizeof(set->lookup[0]), bucketCount,
+                          &allocationSize))
     return NULL;
-
-  // Store function and set hash entries to empty.
-
-  tbl->fn = fn;
-  tbl->numEntries = numEntries;
-
-  for (uint32_t i = 0; i < numEntries; i++)
-    tbl->lookup[i] = NULL;
-
-  return tbl;
+  set = calloc(1, allocationSize);
+  if (set == NULL)
+    return NULL;
+  set->fn = fn == NULL ? DefaultHash : fn;
+  set->bucketCount = bucketCount;
+  return set;
 }
 
-// Destroys a hash table, freeing all data.
-
-void pfHashDestroy(pfHashTable *tbl) {
-  // Get size first.
-
-  if (tbl == NULL)
+void pfHashSetDestroy(pfHashSet *set) {
+  if (set == NULL)
     return;
-
-  // For each lookup entry, free its node list.
-
-  for (uint32_t i = 0; i < tbl->numEntries; i++) {
-    // Iterate through the linked list,
-    //   freeing one node at a time.
-
-    pfHashNode *node = tbl->lookup[i];
+  for (uint32_t i = 0; i < set->bucketCount; i++) {
+    pfHashSetNode *node = set->lookup[i];
     while (node != NULL) {
-      pfHashNode *next = node->next;
+      pfHashSetNode *next = node->next;
       free(node->key);
-      StringListDestroy(node->data);
       free(node);
       node = next;
     }
   }
-  free(tbl);
+  free(set);
 }
 
-// Set a hash value (key/data), creating it if it doesn't
-//   already exist.
+bool pfHashSetAdd(pfHashSet *set, const char *key) {
+  pfHashSetNode *node = NULL;
+  uint32_t bucket = 0;
+  uint32_t hash = 0;
 
-bool pfHashSet(pfHashTable *tbl, const char *key, const char *value) {
-  bool result = false;
-  int entry = 0;
-  pfHashNode *prev = NULL, *node = NULL;
-
-  check(tbl != NULL && key != NULL, ERROR_STR_INVALIDINPUT);
-  locate(tbl, key, &entry, &prev, &node);
-
-  if (node != NULL) {
-    if (value == NULL)
-      return true;
-    node->data = StringListAdd(node->data, value);
-    return (node->data != NULL);
-  } else {
-    node = calloc(sizeof(pfHashNode), 1);
-    check_mem(node);
-    node->key = strdup(key);
-    check_mem(node->key);
-    node->data = StringListAdd(NULL, value);
-    if (value != NULL) {
-      check(node->data != NULL, ERROR_STR_STRINGLISTERROR);
-    }
-    node->next = tbl->lookup[entry];
-    tbl->lookup[entry] = node;
-    node->hash = tbl->fn(key);
-    node = NULL;
-  }
-  result = true;
-error:
-  if (result != true) {
-    if (node != NULL) {
-      if (node->key != NULL)
-        free(node->key);
-      if (node->data != NULL)
-        StringListDestroy(node->data);
-      free(node);
-    }
-  }
-  return result;
-}
-
-// Delete a hash entry, returning error if not found.
-
-bool pfHashDel(pfHashTable *tbl, const char *key) {
-  int entry = 0;
-  pfHashNode *prev = NULL, *node = NULL;
-
-  if (tbl == NULL || key == NULL)
+  if (set == NULL || key == NULL || set->keyCount == SIZE_MAX)
     return false;
-  locate(tbl, key, &entry, &prev, &node);
+  hash = set->fn(key);
+  if (FindSetNode(set, key, hash, &bucket) != NULL)
+    return true;
 
+  node = calloc(1, sizeof(*node));
   if (node == NULL)
     return false;
+  node->key = strdup(key);
+  if (node->key == NULL) {
+    free(node);
+    return false;
+  }
+  node->hash = hash;
+  node->next = set->lookup[bucket];
+  set->lookup[bucket] = node;
+  set->keyCount++;
+  return true;
+}
 
-  if (prev != NULL)
-    prev->next = node->next;
+bool pfHashSetDelete(pfHashSet *set, const char *key) {
+  pfHashSetNode *node = NULL;
+  pfHashSetNode *previous = NULL;
+  uint32_t bucket = 0;
+  uint32_t hash = 0;
+
+  if (set == NULL || key == NULL || set->bucketCount == 0)
+    return false;
+  hash = set->fn(key);
+  bucket = hash % set->bucketCount;
+  node = set->lookup[bucket];
+  while (node != NULL) {
+    if (node->hash == hash && strcmp(node->key, key) == 0)
+      break;
+    previous = node;
+    node = node->next;
+  }
+  if (node == NULL)
+    return false;
+  if (previous == NULL)
+    set->lookup[bucket] = node->next;
   else
-    tbl->lookup[entry] = node->next;
-
+    previous->next = node->next;
   free(node->key);
-  StringListDestroy(node->data);
   free(node);
+  set->keyCount--;
   return true;
 }
 
-// Find a hash entry, and return the data. If not found,
-//   returns NULL.
-
-TStringList *pfHashFind(const pfHashTable *tbl, const char *key) {
-  int entry = 0;
-  pfHashNode *prev = NULL, *node = NULL;
-
-  if (tbl == NULL || key == NULL)
-    return NULL;
-  locate(tbl, key, &entry, &prev, &node);
-
-  if (node == NULL)
-    return NULL;
-
-  return node->data;
+bool pfHashSetContains(const pfHashSet *set, const char *key) {
+  if (set == NULL || key == NULL)
+    return false;
+  return FindSetNode(set, key, set->fn(key), NULL) != NULL;
 }
 
-bool pfHashCheckKey(const pfHashTable *tbl, const char *key) {
-  int entry = 0;
-  pfHashNode *prev = NULL, *node = NULL;
-
-  if (tbl == NULL || key == NULL)
-    return false;
-  locate(tbl, key, &entry, &prev, &node);
-
-  if (node == NULL)
-    return false;
-
-  return true;
-}
-
-bool pfHashCheckExists(pfHashTable *tbl, const char *key, const char *value) {
-  int entry = 0;
-  pfHashNode *prev = NULL, *node = NULL;
-
-  if ((tbl == NULL) || (key == NULL) || (value == NULL))
-    return false;
-
-  locate(tbl, key, &entry, &prev, &node);
-
-  if (node == NULL)
-    return false;
-
-  return StringListFind(node->data, value);
-}
-
-// Output debugging info about the hash table.
-
-void pfHashDebug(pfHashTable *tbl, const char *desc) {
-  if ((tbl == NULL) || (desc == NULL))
+void pfHashSetMoveEntries(pfHashSet *destination, pfHashSet *source) {
+  if (destination == NULL || source == NULL || destination == source ||
+      destination->bucketCount == 0)
     return;
 
-  printf("=====: %s %u entries\n", desc, tbl->numEntries);
+  for (uint32_t i = 0; i < source->bucketCount; i++) {
+    while (source->lookup[i] != NULL) {
+      pfHashSetNode *node = source->lookup[i];
+      uint32_t hash = destination->fn(node->key);
+      uint32_t bucket = hash % destination->bucketCount;
 
-  for (uint32_t i = 0; i < tbl->numEntries; i++) {
-
-    if (tbl->lookup[i] != NULL) {
-      int sz = 0;
-      printf("Entry #%3u:\n", i);
-      pfHashNode *node = tbl->lookup[i];
-      while (node != NULL) {
-        char *key = node->key;
-        if (key != NULL) {
-          printf("\t[' ");
-          PrintHashDebugged((uint8_t *)key);
-          puts("']\n");
-          TStringList *temp = node->data;
-          while (temp != NULL) {
-            printf("\t\t[%u] '%s'\n", temp->hash, temp->value);
-            temp = temp->next;
-          }
-        }
-        node = node->next;
-        sz++;
+      source->lookup[i] = node->next;
+      source->keyCount--;
+      if (FindSetNode(destination, node->key, hash, NULL) != NULL) {
+        free(node->key);
+        free(node);
+        continue;
       }
-      printf("size=%d\n\n", sz);
+      node->hash = hash;
+      node->next = destination->lookup[bucket];
+      destination->lookup[bucket] = node;
+      destination->keyCount++;
     }
   }
+}
 
-  printf("\n");
+static bool GrowHashSet(pfHashSet **setPointer) {
+  pfHashSet *grown = NULL;
+  pfHashSet *set = NULL;
+  uint32_t grownBucketCount = 0;
+
+  if (setPointer == NULL || *setPointer == NULL)
+    return false;
+  set = *setPointer;
+  if (set->bucketCount > (UINT32_MAX - 1U) / 2U)
+    return true;
+  grownBucketCount = set->bucketCount * 2U + 1U;
+  grown = pfHashSetCreate(set->fn, grownBucketCount);
+  if (grown == NULL)
+    return false;
+  pfHashSetMoveEntries(grown, set);
+  pfHashSetDestroy(set);
+  *setPointer = grown;
+  return true;
+}
+
+static bool EnsureHashSetCapacity(pfHashSet **setPointer,
+                                  size_t requiredKeyCount) {
+  if (setPointer == NULL || *setPointer == NULL)
+    return false;
+  while ((size_t)(*setPointer)->bucketCount < requiredKeyCount) {
+    uint32_t previousBucketCount = (*setPointer)->bucketCount;
+    if (!GrowHashSet(setPointer))
+      return false;
+    if ((*setPointer)->bucketCount == previousBucketCount)
+      break;
+  }
+  return true;
+}
+
+static bool AddResizableHashSetValue(pfHashSet **setPointer,
+                                     const char *value) {
+  pfHashSet *set = NULL;
+
+  if (setPointer == NULL || *setPointer == NULL || value == NULL)
+    return false;
+  set = *setPointer;
+  if (pfHashSetContains(set, value))
+    return true;
+  if (set->keyCount >= set->bucketCount) {
+    if (!GrowHashSet(setPointer))
+      return false;
+    set = *setPointer;
+  }
+  return pfHashSetAdd(set, value);
+}
+
+static pfHashMapNode *FindMapNode(const pfHashMap *map, const char *key,
+                                  uint32_t hash, uint32_t *bucket) {
+  pfHashMapNode *node = NULL;
+  uint32_t entry = 0;
+
+  if (map == NULL || key == NULL || map->bucketCount == 0)
+    return NULL;
+  entry = hash % map->bucketCount;
+  if (bucket != NULL)
+    *bucket = entry;
+  node = map->lookup[entry];
+  while (node != NULL) {
+    if (node->hash == hash && strcmp(node->key, key) == 0)
+      return node;
+    node = node->next;
+  }
+  return NULL;
+}
+
+pfHashMap *pfHashMapCreate(pfHashFunction fn, uint32_t bucketCount) {
+  pfHashMap *map = NULL;
+  size_t allocationSize = 0;
+
+  if (!HashAllocationSize(sizeof(*map), sizeof(map->lookup[0]), bucketCount,
+                          &allocationSize))
+    return NULL;
+  map = calloc(1, allocationSize);
+  if (map == NULL)
+    return NULL;
+  map->fn = fn == NULL ? DefaultHash : fn;
+  map->bucketCount = bucketCount;
+  return map;
+}
+
+void pfHashMapDestroy(pfHashMap *map) {
+  if (map == NULL)
+    return;
+  for (uint32_t i = 0; i < map->bucketCount; i++) {
+    pfHashMapNode *node = map->lookup[i];
+    while (node != NULL) {
+      pfHashMapNode *next = node->next;
+      free(node->key);
+      pfHashSetDestroy(node->values);
+      free(node);
+      node = next;
+    }
+  }
+  free(map);
+}
+
+bool pfHashMapAdd(pfHashMap *map, const char *key, const char *value) {
+  pfHashMapNode *node = NULL;
+  uint32_t bucket = 0;
+  uint32_t hash = 0;
+
+  if (map == NULL || key == NULL || value == NULL ||
+      map->keyCount == SIZE_MAX)
+    return false;
+  hash = map->fn(key);
+  node = FindMapNode(map, key, hash, &bucket);
+  if (node != NULL)
+    return AddResizableHashSetValue(&node->values, value);
+
+  node = calloc(1, sizeof(*node));
+  if (node == NULL)
+    return false;
+  node->key = strdup(key);
+  node->values = pfHashSetCreate(NULL, INITIAL_VALUE_BUCKET_COUNT);
+  if (node->key == NULL || node->values == NULL ||
+      !AddResizableHashSetValue(&node->values, value)) {
+    free(node->key);
+    pfHashSetDestroy(node->values);
+    free(node);
+    return false;
+  }
+  node->hash = hash;
+  node->next = map->lookup[bucket];
+  map->lookup[bucket] = node;
+  map->keyCount++;
+  return true;
+}
+
+bool pfHashMapContains(const pfHashMap *map, const char *key,
+                       const char *value) {
+  const pfHashSet *values = pfHashMapFind(map, key);
+
+  return value != NULL && pfHashSetContains(values, value);
+}
+
+const pfHashSet *pfHashMapFind(const pfHashMap *map, const char *key) {
+  pfHashMapNode *node = NULL;
+
+  if (map == NULL || key == NULL)
+    return NULL;
+  node = FindMapNode(map, key, map->fn(key), NULL);
+  return node == NULL ? NULL : node->values;
+}
+
+static void MergeOwnedValueSets(pfHashSet **destination,
+                                pfHashSet **source) {
+  pfHashSet *temporary = NULL;
+
+  if (destination == NULL || source == NULL || *destination == NULL ||
+      *source == NULL)
+    return;
+  if ((*source)->bucketCount > (*destination)->bucketCount) {
+    temporary = *destination;
+    *destination = *source;
+    *source = temporary;
+  }
+  pfHashSetMoveEntries(*destination, *source);
+  pfHashSetDestroy(*source);
+  *source = NULL;
+}
+
+bool pfHashMapPrepareMoveEntries(pfHashMap *destination,
+                                 const pfHashMap *source) {
+  if (destination == NULL || source == NULL || destination == source)
+    return false;
+
+  for (uint32_t i = 0; i < source->bucketCount; i++) {
+    for (const pfHashMapNode *sourceNode = source->lookup[i];
+         sourceNode != NULL; sourceNode = sourceNode->next) {
+      pfHashMapNode *destinationNode = FindMapNode(
+          destination, sourceNode->key, destination->fn(sourceNode->key), NULL);
+      size_t requiredKeyCount = 0;
+
+      if (destinationNode == NULL)
+        continue;
+      if (sourceNode->values == NULL || destinationNode->values == NULL ||
+          sourceNode->values->keyCount >
+              SIZE_MAX - destinationNode->values->keyCount)
+        return false;
+      requiredKeyCount = destinationNode->values->keyCount +
+                         sourceNode->values->keyCount;
+      if (!EnsureHashSetCapacity(&destinationNode->values, requiredKeyCount))
+        return false;
+    }
+  }
+  return true;
+}
+
+void pfHashMapMoveEntries(pfHashMap *destination, pfHashMap *source) {
+  if (destination == NULL || source == NULL || destination == source ||
+      destination->bucketCount == 0)
+    return;
+
+  for (uint32_t i = 0; i < source->bucketCount; i++) {
+    while (source->lookup[i] != NULL) {
+      pfHashMapNode *sourceNode = source->lookup[i];
+      pfHashMapNode *destinationNode = NULL;
+      uint32_t hash = destination->fn(sourceNode->key);
+      uint32_t bucket = hash % destination->bucketCount;
+
+      source->lookup[i] = sourceNode->next;
+      source->keyCount--;
+      destinationNode =
+          FindMapNode(destination, sourceNode->key, hash, NULL);
+      if (destinationNode == NULL) {
+        sourceNode->hash = hash;
+        sourceNode->next = destination->lookup[bucket];
+        destination->lookup[bucket] = sourceNode;
+        destination->keyCount++;
+        continue;
+      }
+
+      MergeOwnedValueSets(&destinationNode->values, &sourceNode->values);
+      free(sourceNode->key);
+      free(sourceNode);
+    }
+  }
 }

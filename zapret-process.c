@@ -47,11 +47,11 @@ static int FDReadCallback(void *context, char *buffer, int len) {
   return (int)bytesRead;
 }
 
-static void MakeNSLookup(char *host, pfHashTable *hashTable) {
+static void MakeNSLookup(char *host, pfHashSet *ipAddresses) {
   struct addrinfo aiHints;
   struct addrinfo *aiResult = NULL, *aiPointer = NULL;
 
-  if (host == NULL || hashTable == NULL)
+  if (host == NULL || ipAddresses == NULL)
     return;
   memset(&aiHints, 0, sizeof(struct addrinfo));
   aiHints.ai_family = AF_INET;
@@ -66,7 +66,7 @@ static void MakeNSLookup(char *host, pfHashTable *hashTable) {
          aiPointer = aiPointer->ai_next) {
       struct sockaddr_in *saddr = (struct sockaddr_in *)aiPointer->ai_addr;
       char *ipAddr = inet_ntoa(saddr->sin_addr);
-      if (pfHashSet(hashTable, ipAddr, host) != true) {
+      if (!pfHashSetAdd(ipAddresses, ipAddr)) {
         log_err(ERROR_STR_HASHERROR);
       }
     }
@@ -202,14 +202,14 @@ static TRegisterFieldType RegisterFieldType(const xmlChar *name) {
   return REGISTER_FIELD_NONE;
 }
 
-static bool ProcessRegisterURL(char *value, pfHashTable *httpHashTable) {
+static bool ProcessRegisterURL(char *value, pfHashMap *httpRules) {
   static const char httpPrefix[] = "http://";
   uint8_t *asciiHost = NULL;
   char *host = NULL;
   char *url = NULL;
   bool result = false;
 
-  if (value == NULL || httpHashTable == NULL ||
+  if (value == NULL || httpRules == NULL ||
       strncasecmp(httpPrefix, value, sizeof(httpPrefix) - 1) != 0)
     return false;
   host = value + sizeof(httpPrefix) - 1;
@@ -233,7 +233,7 @@ static bool ProcessRegisterURL(char *value, pfHashTable *httpHashTable) {
     DecodeURL(url);
   }
   LowerStringCase((char *)asciiHost);
-  if (pfHashSet(httpHashTable, (char *)asciiHost, url) != true)
+  if (!pfHashMapAdd(httpRules, (char *)asciiHost, url))
     log_err(ERROR_STR_HASHERROR);
   else
     result = true;
@@ -245,20 +245,19 @@ cleanup:
 }
 
 static void ProcessRegisterDomain(char *value, bool makeNSLookup,
-                                  pfHashTable **hashTables) {
+                                  TZapretBlacklist *blacklist) {
   uint8_t *host = NULL;
   uint8_t *dnsNotation = NULL;
 
-  if (value == NULL || hashTables == NULL)
+  if (value == NULL || blacklist == NULL)
     return;
   if (idn2_lookup_u8((uint8_t *)value, &host, 0) != IDN2_OK || host == NULL)
     goto cleanup;
   if (makeNSLookup)
-    MakeNSLookup((char *)host, hashTables[NETFILTER_TYPE_IP]);
+    MakeNSLookup((char *)host, blacklist->ipAddresses);
   dnsNotation = String2DNSNotation((char *)host);
   if (dnsNotation != NULL &&
-      pfHashSet(hashTables[NETFILTER_TYPE_DNS], (char *)dnsNotation, NULL) !=
-          true)
+      !pfHashSetAdd(blacklist->dnsNames, (char *)dnsNotation))
     log_err(ERROR_STR_HASHERROR);
 
 cleanup:
@@ -267,34 +266,33 @@ cleanup:
     idn2_free(host);
 }
 
-static void ProcessRegisterIP(char *value, pfHashTable *ipHashTable) {
-  if (value != NULL && ipHashTable != NULL &&
-      pfHashSet(ipHashTable, value, NULL) != true)
+static void ProcessRegisterIP(char *value, pfHashSet *ipAddresses) {
+  if (value != NULL && ipAddresses != NULL &&
+      !pfHashSetAdd(ipAddresses, value))
     log_err(ERROR_STR_HASHERROR);
 }
 
 static void ProcessRegisterRecord(TRegisterRecord *record, bool makeNSLookup,
-                                  pfHashTable **hashTables) {
+                                  TZapretBlacklist *blacklist) {
   bool httpURLFound = false;
 
-  if (record == NULL || hashTables == NULL)
+  if (record == NULL || blacklist == NULL)
     return;
   for (TRegisterField *field = record->head; field != NULL;
        field = field->next) {
     switch (field->type) {
     case REGISTER_FIELD_URL:
-      if (ProcessRegisterURL(field->value,
-                             hashTables[NETFILTER_TYPE_HTTP]))
+      if (ProcessRegisterURL(field->value, blacklist->httpRules))
         httpURLFound = true;
       break;
     case REGISTER_FIELD_DOMAIN:
       if (!httpURLFound)
-        ProcessRegisterDomain(field->value, makeNSLookup, hashTables);
+        ProcessRegisterDomain(field->value, makeNSLookup, blacklist);
       break;
     case REGISTER_FIELD_IP:
     case REGISTER_FIELD_IP_SUBNET:
       if (!httpURLFound)
-        ProcessRegisterIP(field->value, hashTables[NETFILTER_TYPE_IP]);
+        ProcessRegisterIP(field->value, blacklist->ipAddresses);
       break;
     default:
       break;
@@ -332,7 +330,7 @@ error:
 
 static bool ParseRegisterXml(xmlInputReadCallback readCallback, void *readCtx,
                              bool makeNSLookup, char *timestampFile,
-                             pfHashTable **hashTables) {
+                             TZapretBlacklist *blacklist) {
   xmlTextReaderPtr reader = NULL;
   TRegisterRecord record = {0};
   TRegisterText fieldText = {0};
@@ -346,11 +344,11 @@ static bool ParseRegisterXml(xmlInputReadCallback readCallback, void *readCtx,
   bool rootSeen = false;
   bool result = false;
 
-  check(readCtx != NULL && readCallback != NULL && hashTables != NULL,
+  check(readCtx != NULL && readCallback != NULL && blacklist != NULL,
         ERROR_STR_INVALIDINPUT);
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    check(hashTables[i] != NULL, ERROR_STR_INVALIDINPUT);
-  }
+  check(blacklist->httpRules != NULL && blacklist->dnsNames != NULL &&
+            blacklist->ipAddresses != NULL,
+        ERROR_STR_INVALIDINPUT);
   reader = xmlReaderForIO(readCallback, NULL, readCtx, NULL, "windows-1251",
                           XML_PARSE_NOBLANKS | XML_PARSE_NONET |
                               XML_PARSE_COMPACT);
@@ -383,7 +381,7 @@ static bool ParseRegisterXml(xmlInputReadCallback readCallback, void *readCtx,
         inRecord = true;
         recordDepth = depth;
         if (xmlTextReaderIsEmptyElement(reader) == 1) {
-          ProcessRegisterRecord(&record, makeNSLookup, hashTables);
+          ProcessRegisterRecord(&record, makeNSLookup, blacklist);
           ClearRegisterRecord(&record);
           inRecord = false;
           recordDepth = -1;
@@ -426,7 +424,7 @@ static bool ParseRegisterXml(xmlInputReadCallback readCallback, void *readCtx,
     }
 
     if (nodeType == XML_READER_TYPE_END_ELEMENT && depth == recordDepth) {
-      ProcessRegisterRecord(&record, makeNSLookup, hashTables);
+      ProcessRegisterRecord(&record, makeNSLookup, blacklist);
       ClearRegisterRecord(&record);
       inRecord = false;
       recordDepth = -1;
@@ -448,101 +446,43 @@ error:
   return result;
 }
 
-static pfHashTable **CreateStagingHashTables(pfHashTable **destination) {
-  pfHashTable **staging = NULL;
+static TZapretBlacklist *CreateStagingBlacklist(
+    const TZapretBlacklist *destination) {
+  TZapretBlacklist *staging = NULL;
+  uint32_t bucketCounts[NETFILTER_TYPE_COUNT] = {0};
 
-  if (destination == NULL)
+  if (destination == NULL || destination->httpRules == NULL ||
+      destination->dnsNames == NULL || destination->ipAddresses == NULL)
     return NULL;
-  staging = calloc(NETFILTER_TYPE_COUNT, sizeof(*staging));
+  bucketCounts[NETFILTER_TYPE_HTTP] = destination->httpRules->bucketCount;
+  bucketCounts[NETFILTER_TYPE_DNS] = destination->dnsNames->bucketCount;
+  bucketCounts[NETFILTER_TYPE_IP] = destination->ipAddresses->bucketCount;
+  staging = calloc(1, sizeof(*staging));
   if (staging == NULL)
     return NULL;
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    if (destination[i] == NULL || destination[i]->numEntries == 0)
-      goto error;
-    staging[i] =
-        pfHashCreate(destination[i]->fn, destination[i]->numEntries);
-    if (staging[i] == NULL)
-      goto error;
+  if (!InitializeZapretBlacklist(staging, bucketCounts)) {
+    free(staging);
+    return NULL;
   }
   return staging;
-
-error:
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++)
-    pfHashDestroy(staging[i]);
-  free(staging);
-  return NULL;
 }
 
-static void DestroyHashTables(pfHashTable **hashTables) {
-  if (hashTables == NULL)
-    return;
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    pfHashDestroy(hashTables[i]);
-    hashTables[i] = NULL;
-  }
-  free(hashTables);
-}
-
-/*
- * Move every source node into destination without allocating. Source remains
- * owned by its caller, but is empty afterwards. Duplicate keys retain the
- * destination node and take ownership of any source values not already there.
- */
-static void MoveHashEntries(pfHashTable *destination, pfHashTable *source) {
-  if (destination == NULL || source == NULL || destination == source ||
-      destination->numEntries == 0)
-    return;
-
-  for (uint32_t i = 0; i < source->numEntries; i++) {
-    while (source->lookup[i] != NULL) {
-      pfHashNode *sourceNode = source->lookup[i];
-      pfHashNode *destinationNode = NULL;
-      uint32_t hash = destination->fn(sourceNode->key);
-      uint32_t entry = hash % destination->numEntries;
-
-      source->lookup[i] = sourceNode->next;
-      for (destinationNode = destination->lookup[entry];
-           destinationNode != NULL; destinationNode = destinationNode->next) {
-        if (destinationNode->hash == hash &&
-            strcmp(destinationNode->key, sourceNode->key) == 0)
-          break;
-      }
-
-      if (destinationNode == NULL) {
-        sourceNode->hash = hash;
-        sourceNode->next = destination->lookup[entry];
-        destination->lookup[entry] = sourceNode;
-        continue;
-      }
-
-      while (sourceNode->data != NULL) {
-        TStringList *value = sourceNode->data;
-        sourceNode->data = value->next;
-        if (StringListFind(destinationNode->data, value->value)) {
-          free(value->value);
-          free(value);
-        } else {
-          value->next = destinationNode->data;
-          destinationNode->data = value;
-        }
-      }
-      free(sourceNode->key);
-      free(sourceNode);
-    }
-  }
-}
-
-static void MoveStagedHashTables(pfHashTable **destination,
-                                 pfHashTable **staging) {
+static bool MoveStagedBlacklist(TZapretBlacklist *destination,
+                                TZapretBlacklist *staging) {
   if (destination == NULL || staging == NULL)
-    return;
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++)
-    MoveHashEntries(destination[i], staging[i]);
+    return false;
+  if (!pfHashMapPrepareMoveEntries(destination->httpRules,
+                                   staging->httpRules))
+    return false;
+  pfHashMapMoveEntries(destination->httpRules, staging->httpRules);
+  pfHashSetMoveEntries(destination->dnsNames, staging->dnsNames);
+  pfHashSetMoveEntries(destination->ipAddresses, staging->ipAddresses);
+  return true;
 }
 
-pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
-                                        bool makeNSLookup,
-                                        char *timestampFile) {
+TZapretBlacklist *ProcessRegisterZipArchive(char *registerZipArchive,
+                                            bool makeNSLookup,
+                                            char *timestampFile) {
   struct zip_source *zipSource = NULL;
   struct zip *zipArchive = NULL;
   struct zip_file *zipFile = NULL;
@@ -550,17 +490,16 @@ pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
   void *decodedZipArchive = NULL;
   size_t decodedZipArchiveLength = 0;
   zip_error_t zipError;
-  pfHashTable **result = NULL;
+  TZapretBlacklist *result = NULL;
+  const uint32_t bucketCounts[NETFILTER_TYPE_COUNT] = {
+      ZAPRET_HTTP_HASH_BUCKET_COUNT, ZAPRET_DNS_HASH_BUCKET_COUNT,
+      ZAPRET_IP_HASH_BUCKET_COUNT};
 
   check(registerZipArchive != NULL, ERROR_STR_INVALIDINPUT);
   memset(&zipError, 0, sizeof(zip_error_t));
-  result = calloc(NETFILTER_TYPE_COUNT, sizeof(pfHashTable *));
+  result = calloc(1, sizeof(*result));
   check_mem(result);
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    result[i] =
-        pfHashCreate(NULL, ZapretHashBucketCount((TNetfilterType)i));
-    check_mem(result[i]);
-  }
+  check(InitializeZapretBlacklist(result, bucketCounts), ERROR_STR_HASHERROR);
   decodedZipArchive = Base64Decode(
       registerZipArchive, strlen(registerZipArchive), &decodedZipArchiveLength);
   check(decodedZipArchive != NULL, ERROR_STR_INVALIDBASE64);
@@ -589,7 +528,10 @@ pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
   TrimUnusedHeap();
   return result;
 error:
-  DestroyHashTables(result);
+  if (result != NULL) {
+    DestroyZapretBlacklist(result);
+    free(result);
+  }
   if (zipFile != NULL)
     zip_fclose(zipFile);
   if (zipArchive != NULL)
@@ -603,18 +545,18 @@ error:
 }
 
 bool ProcessRegisterCustomBlacklist(bool makeNSLookup, char *customBlackList,
-                                    pfHashTable **result) {
+                                    TZapretBlacklist *result) {
   bool exitCode = false;
   int closeResult = -1;
   int customFD = -1;
-  pfHashTable **staging = NULL;
+  TZapretBlacklist *staging = NULL;
 
   if (customBlackList != NULL) {
     check(access(customBlackList, R_OK) == 0, ERROR_STR_INVALIDINPUT);
     check((customFD = open(customBlackList, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)) !=
               -1,
           ERROR_STR_FILEFAIL);
-    staging = CreateStagingHashTables(result);
+    staging = CreateStagingBlacklist(result);
     check_mem(staging);
     check(ParseRegisterXml(FDReadCallback, &customFD, makeNSLookup, NULL,
                            staging) == true,
@@ -622,13 +564,16 @@ bool ProcessRegisterCustomBlacklist(bool makeNSLookup, char *customBlackList,
     closeResult = close(customFD);
     customFD = -1;
     check(closeResult == 0, ERROR_STR_FILEFAIL);
-    MoveStagedHashTables(result, staging);
+    check(MoveStagedBlacklist(result, staging), ERROR_STR_HASHERROR);
   }
   exitCode = true;
 error:
   if (customFD != -1)
     close(customFD);
-  DestroyHashTables(staging);
+  if (staging != NULL) {
+    DestroyZapretBlacklist(staging);
+    free(staging);
+  }
   if (customBlackList != NULL)
     TrimUnusedHeap();
   return exitCode;

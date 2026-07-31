@@ -705,7 +705,7 @@ static MunitResult TestThreadLifecycle(
   static char interfaceName[] = "thread-test";
   static char redirectHost[] = "redirect.example";
   TNetfilterContext **contexts = NULL;
-  pfHashTable *hashTable = NULL;
+  pfHashMap *httpRules = NULL;
 
   (void)parameters;
   (void)fixture;
@@ -713,13 +713,13 @@ static MunitResult TestThreadLifecycle(
   contexts = InitNetfilterConfiguration(2, interfaceName, redirectHost, 200,
                                         NETFILTER_TYPE_HTTP);
   munit_assert_not_null(contexts);
-  hashTable = pfHashCreate(NULL, 31);
-  munit_assert_not_null(hashTable);
+  httpRules = pfHashMapCreate(NULL, 31);
+  munit_assert_not_null(httpRules);
 
-  StartNetfilterProcessing(contexts, 2, hashTable);
+  StartHTTPNetfilterProcessing(contexts, 2, httpRules);
   munit_assert_size(pthreadCreateCount, ==, 2);
-  munit_assert_ptr_equal(contexts[0]->hashTable, hashTable);
-  munit_assert_ptr_equal(contexts[1]->hashTable, hashTable);
+  munit_assert_ptr_equal(contexts[0]->httpRules, httpRules);
+  munit_assert_ptr_equal(contexts[1]->httpRules, httpRules);
   munit_assert_not_null(threadRoutines[0]);
   munit_assert_null(threadRoutines[0](threadArguments[0]));
   munit_assert_size(recvCount, ==, 1);
@@ -748,7 +748,7 @@ static MunitResult TestThreadLifecycle(
   munit_assert_uint64((uint64_t)contexts[1]->threadId, ==, 0);
 
   DestroyContexts(contexts, 2);
-  pfHashDestroy(hashTable);
+  pfHashMapDestroy(httpRules);
   return MUNIT_OK;
 }
 
@@ -757,7 +757,7 @@ static MunitResult TestThreadLifecycleFailures(
   static char interfaceName[] = "thread-failure";
   static char redirectHost[] = "redirect.example";
   TNetfilterContext **contexts = NULL;
-  pfHashTable *hashTable = NULL;
+  pfHashMap *httpRules = NULL;
 
   (void)parameters;
   (void)fixture;
@@ -765,25 +765,25 @@ static MunitResult TestThreadLifecycleFailures(
   contexts = InitNetfilterConfiguration(1, interfaceName, redirectHost, 300,
                                         NETFILTER_TYPE_HTTP);
   munit_assert_not_null(contexts);
-  hashTable = pfHashCreate(NULL, 31);
-  munit_assert_not_null(hashTable);
+  httpRules = pfHashMapCreate(NULL, 31);
+  munit_assert_not_null(httpRules);
 
-  StartNetfilterProcessing(NULL, 0, NULL);
-  StartNetfilterProcessing(NULL, 1, hashTable);
-  StartNetfilterProcessing(contexts, 1, NULL);
+  StartHTTPNetfilterProcessing(NULL, 0, NULL);
+  StartHTTPNetfilterProcessing(NULL, 1, httpRules);
+  StartHTTPNetfilterProcessing(contexts, 1, NULL);
   flagMatrixShutdown = 1;
-  StartNetfilterProcessing(contexts, 1, hashTable);
+  StartHTTPNetfilterProcessing(contexts, 1, httpRules);
   flagMatrixShutdown = 0;
   flagMatrixReconfigure = 1;
-  StartNetfilterProcessing(contexts, 1, hashTable);
+  StartHTTPNetfilterProcessing(contexts, 1, httpRules);
   flagMatrixReconfigure = 0;
   munit_assert_size(pthreadCreateCount, ==, 0);
 
   mockFailure = MOCK_FAIL_PTHREAD_CREATE;
-  StartNetfilterProcessing(contexts, 1, hashTable);
+  StartHTTPNetfilterProcessing(contexts, 1, httpRules);
   munit_assert_size(pthreadCreateCount, ==, 0);
   mockFailure = MOCK_FAIL_NONE;
-  StartNetfilterProcessing(contexts, 1, hashTable);
+  StartHTTPNetfilterProcessing(contexts, 1, httpRules);
   munit_assert_size(pthreadCreateCount, ==, 1);
 
   mockFailure = MOCK_FAIL_NFQ_FD;
@@ -798,7 +798,7 @@ static MunitResult TestThreadLifecycleFailures(
 
   mockFailure = MOCK_FAIL_NONE;
   DestroyContexts(contexts, 1);
-  pfHashDestroy(hashTable);
+  pfHashMapDestroy(httpRules);
   return MUNIT_OK;
 }
 

@@ -25,7 +25,7 @@ typedef struct {
 } TCapturedPacket;
 
 typedef struct {
-  pfHashTable *hashTable;
+  pfHashMap *httpRules;
   TNetfilterContext context;
 } TRawHTTPFixture;
 
@@ -210,14 +210,14 @@ static void *RawHTTPSetup(const MunitParameter parameters[], void *userData) {
   (void)parameters;
   (void)userData;
   memset(fixture, 0, sizeof(*fixture));
-  fixture->hashTable = pfHashCreate(NULL, 31);
-  if (fixture->hashTable == NULL)
+  fixture->httpRules = pfHashMapCreate(NULL, 31);
+  if (fixture->httpRules == NULL)
     munit_error("cannot allocate HTTP hash table");
-  if (!pfHashSet(fixture->hashTable, "example.com", "/") ||
-      !pfHashSet(fixture->hashTable, "example.com", "/blocked path"))
+  if (!pfHashMapAdd(fixture->httpRules, "example.com", "/") ||
+      !pfHashMapAdd(fixture->httpRules, "example.com", "/blocked path"))
     munit_error("cannot populate HTTP hash table");
 
-  fixture->context.hashTable = fixture->hashTable;
+  fixture->context.httpRules = fixture->httpRules;
   fixture->context.ifIndex = 7;
   fixture->context.redirectSocket = 42;
   fixture->context.redirectDataLen = redirectLength;
@@ -239,7 +239,7 @@ static void RawHTTPTearDown(void *fixtureData) {
 
   if (fixture == NULL)
     return;
-  pfHashDestroy(fixture->hashTable);
+  pfHashMapDestroy(fixture->httpRules);
   free(fixture->context.redirectNetworkPacket);
   free(fixture);
 }
@@ -402,7 +402,7 @@ static MunitResult TestInvalidContextIsRejected(
   TRawHTTPFixture *fixture = fixtureData;
   uint8_t packet[TEST_PACKET_CAPACITY] __attribute__((aligned(4)));
   uint8_t *redirectPacket = fixture->context.redirectNetworkPacket;
-  pfHashTable *hashTable = fixture->context.hashTable;
+  const pfHashMap *httpRules = fixture->context.httpRules;
   size_t redirectLength = fixture->context.redirectDataLen;
   size_t packetLength = BuildRequestPacket(packet, sizeof(packet), request);
 
@@ -412,10 +412,10 @@ static MunitResult TestInvalidContextIsRejected(
   munit_assert_false(
       ProcessRawPacketHTTP(packet, packetLength, &fixture->context, NULL));
 
-  fixture->context.hashTable = NULL;
+  fixture->context.httpRules = NULL;
   munit_assert_false(ProcessRawPacketHTTP(packet, packetLength,
                                           &fixture->context, hardwareAddress));
-  fixture->context.hashTable = hashTable;
+  fixture->context.httpRules = httpRules;
 
   fixture->context.redirectNetworkPacket = NULL;
   munit_assert_false(ProcessRawPacketHTTP(packet, packetLength,

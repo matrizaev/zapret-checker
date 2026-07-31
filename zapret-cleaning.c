@@ -158,9 +158,6 @@ void ClearZapretContext(TZapretContext *context) {
   if (context->privateKeyPassword != NULL) {
     free(context->privateKeyPassword);
   }
-  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++)
-    if (context->hashTables[i] != NULL) {
-      pfHashDestroy(context->hashTables[i]);
-    }
+  DestroyZapretBlacklist(&context->blacklist);
   memset(context, 0, sizeof(TZapretContext));
 }
