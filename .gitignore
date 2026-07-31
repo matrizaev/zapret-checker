@@ -31,6 +31,8 @@ rutoken-sign
 /tests/test_smtp-sanitize
 /tests/test_checker
 /tests/test_checker-sanitize
+/tests/test_checker_components
+/tests/test_checker_components-sanitize
 /zapret-soap-capture/
 .vscode/
 /request.xml
