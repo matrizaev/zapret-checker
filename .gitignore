@@ -15,6 +15,8 @@ rutoken-sign
 /tests/test_soap_scenarios-sanitize
 /tests/test_register
 /tests/test_register-sanitize
+/tests/test_configuration
+/tests/test_configuration-sanitize
 /zapret-soap-capture/
 .vscode/
 request.xml

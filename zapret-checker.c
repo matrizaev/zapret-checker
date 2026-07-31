@@ -224,9 +224,18 @@ error:
 /*************************************************************************
  * Главная функция демона.                                                *
  *************************************************************************/
-int main() {
+int main(int argc, char *argv[]) {
   int exitCode = EXIT_FAILURE;
+  const char *configurationFile = ZAPRET_DEFAULT_CONFIG_FILE;
   TZapretContext context;
+
+  if (argc == 3 &&
+      (!strcmp(argv[1], "-c") || !strcmp(argv[1], "--config"))) {
+    configurationFile = argv[2];
+  } else if (argc != 1) {
+    fprintf(stderr, "Usage: %s [-c|--config FILE]\n", argv[0]);
+    return EXIT_FAILURE;
+  }
 
   /*************************************************************************
    * Начальная инициализация используемых библиотек.                        *
@@ -255,7 +264,8 @@ int main() {
        * конфигурации. *
        *************************************************************************/
       ClearZapretContext(&context);
-      check(ReadZapretConfiguration(&context) == true, ERROR_STR_CONFIGURATION);
+      check(ReadZapretConfiguration(&context, configurationFile) == true,
+            ERROR_STR_CONFIGURATION);
       flagMatrixReconfigure = 0;
 
       /*************************************************************************

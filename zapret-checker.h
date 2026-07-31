@@ -11,7 +11,12 @@ extern volatile sig_atomic_t flagMatrixShutdown;
 extern volatile sig_atomic_t flagMatrixReconfigure;
 extern volatile sig_atomic_t flagMatrixReload;
 
-extern bool ReadZapretConfiguration(TZapretContext *context);
+#define ZAPRET_DEFAULT_CONFIG_FILE \
+  "/etc/zapret-checker/zapret-checker.xml"
+
+/* configurationFile is borrowed and remains owned by the caller. */
+extern bool ReadZapretConfiguration(TZapretContext *context,
+                                    const char *configurationFile);
 
 extern void ClearSOAPContext(TSOAPContext *context);
 extern void ClearNetfilterContext(TNetfilterContext **context,

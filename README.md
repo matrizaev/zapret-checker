@@ -4,6 +4,19 @@ to block blacklisted websites according to Russian law.
 The blacklist is retrieved from http://vigruzki.rkn.gov.ru/
 Written by Matrizaev Vyacheslav.
 
+## Daemon configuration
+
+By default, the daemon reads
+`/etc/zapret-checker/zapret-checker.xml`. Supply another file with `--config`
+(or `-c`):
+
+```sh
+./zapret-checker --config /path/to/zapret-checker.xml
+```
+
+Relative `timestampFile` and `customBlacklist` paths in the XML are resolved
+relative to the directory containing the configuration file.
+
 ## Standalone SOAP downloader
 
 `zapret-download` is a one-shot C entrypoint using the daemon's SOAP, HTTP,

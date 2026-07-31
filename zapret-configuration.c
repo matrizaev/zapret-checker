@@ -8,15 +8,52 @@
 #include "zapret-configuration.h"
 
 /*************************************************************************
- * Путь к файлу конфигурации.                                             *
- *************************************************************************/
-#define DAEMON_CONFIG_PATH "/etc/zapret-checker"
-#define DAEMON_CONFIG_FILE "zapret-checker.xml"
-
-/*************************************************************************
  * Шаблон SMTP службы для libCURL.                                        *
  *************************************************************************/
 #define SMTP_SERVICE_TEMPLATE "smtp://%s/"
+
+/*************************************************************************
+ * Преобразование относительного пути из конфигурации в путь относительно *
+ * каталога конфигурационного файла.                                      *
+ *************************************************************************/
+static char *ResolveConfigurationPath(const char *configurationDirectory,
+                                      const char *path) {
+  char *result = NULL;
+  size_t configurationDirectoryLength = 0;
+  size_t pathLength = 0;
+  size_t resultSize = 0;
+  size_t separatorLength = 1;
+  const char *separator = "/";
+  int written = 0;
+
+  if (configurationDirectory == NULL || path == NULL || path[0] == '\0')
+    return NULL;
+  if (path[0] == '/')
+    return strdup(path);
+  configurationDirectoryLength = strlen(configurationDirectory);
+  pathLength = strlen(path);
+  if (configurationDirectoryLength > 0 &&
+      configurationDirectory[configurationDirectoryLength - 1] == '/') {
+    separator = "";
+    separatorLength = 0;
+  }
+  if (configurationDirectoryLength > SIZE_MAX - separatorLength - 1 ||
+      pathLength >
+          SIZE_MAX - configurationDirectoryLength - separatorLength - 1)
+    return NULL;
+  resultSize =
+      configurationDirectoryLength + separatorLength + pathLength + 1;
+  result = malloc(resultSize);
+  if (result == NULL)
+    return NULL;
+  written = snprintf(result, resultSize, "%s%s%s", configurationDirectory,
+                     separator, path);
+  if (written <= 0 || (size_t)written >= resultSize) {
+    free(result);
+    return NULL;
+  }
+  return result;
+}
 
 /*************************************************************************
  * Чтение раздела <redirect> конфигурации.                                *
@@ -255,7 +292,8 @@ error:
  * Чтение раздела <rknBlacklist> конфигурации.                            *
  *************************************************************************/
 static bool ReadBlacklistConfiguration(xmlNodePtr node,
-                                       TZapretContext *context) {
+                                       TZapretContext *context,
+                                       const char *configurationDirectory) {
   xmlChar *nodeVal = NULL, *nodeAttr = NULL;
   bool result = false;
   int fd = -1;
@@ -344,7 +382,8 @@ static bool ReadBlacklistConfiguration(xmlNodePtr node,
 	      check(nodeVal != NULL, ERROR_STR_INVALIDXML);
 	      char *trimmed = TrimWhiteSpaces((char *)nodeVal);
 	      check(trimmed != NULL, ERROR_STR_INVALIDSTRING);
-	      context->timestampFile = strdup(trimmed);
+	      context->timestampFile =
+	          ResolveConfigurationPath(configurationDirectory, trimmed);
 	      check(context->timestampFile != NULL, ERROR_STR_INVALIDSTRING);
 	      if (access(context->timestampFile, F_OK) != 0) {
 	        fd = open(context->timestampFile, O_CREAT | O_RDONLY,
@@ -387,26 +426,40 @@ error:
  * Чтение конфигурационного файла.                                        *
  * Память под контекст конфигурации должен быть заранее.                  *
  *************************************************************************/
-bool ReadZapretConfiguration(TZapretContext *context) {
+bool ReadZapretConfiguration(TZapretContext *context,
+                             const char *configurationFile) {
   xmlDoc *doc = NULL;
   xmlNode *docNode = NULL;
   xmlChar *nodeVal = NULL;
+  char *canonicalConfigurationFile = NULL;
+  char *configurationDirectory = NULL;
   bool result = false;
 
   /*************************************************************************
    * Проверка возможности считать файл конфигурации.                        *
    *************************************************************************/
-  check(context != NULL, ERROR_STR_INVALIDINPUT);
-  check(chdir(DAEMON_CONFIG_PATH) == 0, ERROR_STR_FILEFAIL);
-  check(access(DAEMON_CONFIG_FILE, R_OK) == 0, ERROR_STR_FILEFAIL);
-  check(ValidateXmlFile2(DAEMON_CONFIG_FILE, configurationScheme,
+  check(context != NULL && configurationFile != NULL &&
+            configurationFile[0] != '\0',
+        ERROR_STR_INVALIDINPUT);
+  canonicalConfigurationFile = realpath(configurationFile, NULL);
+  check(canonicalConfigurationFile != NULL, ERROR_STR_FILEFAIL);
+  configurationDirectory = strdup(canonicalConfigurationFile);
+  check_mem(configurationDirectory);
+  char *lastSeparator = strrchr(configurationDirectory, '/');
+  check(lastSeparator != NULL, ERROR_STR_FILEFAIL);
+  if (lastSeparator == configurationDirectory)
+    lastSeparator[1] = '\0';
+  else
+    *lastSeparator = '\0';
+  check(access(canonicalConfigurationFile, R_OK) == 0, ERROR_STR_FILEFAIL);
+  check(ValidateXmlFile2(canonicalConfigurationFile, configurationScheme,
                          configurationSchemeLen) == true,
         ERROR_STR_INVALIDXML);
 
   /*************************************************************************
    * Цикл чтения и обработки узлов xml-файла конфигурации.                  *
    *************************************************************************/
-  doc = xmlReadFile(DAEMON_CONFIG_FILE, "windows-1251",
+  doc = xmlReadFile(canonicalConfigurationFile, "windows-1251",
                     XML_PARSE_NOBLANKS | XML_PARSE_NONET);
   check(doc != NULL, ERROR_STR_INVALIDXML);
   docNode = xmlDocGetRootElement(doc);
@@ -439,7 +492,8 @@ bool ReadZapretConfiguration(TZapretContext *context) {
      *                                           SOAP-сервером РосКомНадзора. *
      *************************************************************************/
     if (!xmlStrcmp(docNode->name, BAD_CAST "rknBlacklist")) {
-      check(ReadBlacklistConfiguration(docNode, context) == true,
+      check(ReadBlacklistConfiguration(docNode, context,
+                                       configurationDirectory) == true,
             ERROR_STR_INVALIDXML);
       continue;
     }
@@ -454,7 +508,8 @@ bool ReadZapretConfiguration(TZapretContext *context) {
       check(nodeVal != NULL, ERROR_STR_INVALIDXML);
       char *trimmed = TrimWhiteSpaces((char *)nodeVal);
       check(trimmed != NULL, ERROR_STR_INVALIDSTRING);
-      context->customBlacklist = strdup(trimmed);
+      context->customBlacklist =
+          ResolveConfigurationPath(configurationDirectory, trimmed);
       check(context->customBlacklist != NULL, ERROR_STR_INVALIDSTRING);
       if (access(context->customBlacklist, R_OK) != 0) {
         free(context->customBlacklist);
@@ -472,5 +527,7 @@ error:
     xmlFree(nodeVal);
   if (doc != NULL)
     xmlFreeDoc(doc);
+  free(configurationDirectory);
+  free(canonicalConfigurationFile);
   return result;
 }
