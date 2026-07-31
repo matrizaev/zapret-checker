@@ -250,7 +250,9 @@ bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
-  if (packet == NULL || threadData == NULL)
+  if (packet == NULL || threadData == NULL || threadData->hashTable == NULL ||
+      threadData->redirectNetworkPacket == NULL || hwAddr == NULL ||
+      packetSize < sizeof(struct iphdr))
     return false;
 
   struct iphdr *ipHdr = (struct iphdr *)(packet);
@@ -265,13 +267,15 @@ bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
    * Поддерживается только TCP, пакет должен был цельным.                   *
    *************************************************************************/
   uint16_t totalLen = be16toh(ipHdr->tot_len);
-  if (ipHdr->protocol != IPPROTO_TCP || packetSize < totalLen)
+  uint16_t iphLen = (uint16_t)(ipHdr->ihl << 2);
+  if (ipHdr->protocol != IPPROTO_TCP || iphLen < IP4_HDRLEN ||
+      totalLen < iphLen || packetSize < totalLen ||
+      (size_t)(totalLen - iphLen) < sizeof(struct tcphdr))
     return false;
 
   /*************************************************************************
    * Находим начало TCP.                                                    *
    *************************************************************************/
-  uint16_t iphLen = (ipHdr->ihl << 2);
   packet += iphLen;
   struct tcphdr *tcpHdr = (struct tcphdr *)(packet);
 
@@ -279,10 +283,9 @@ bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
    * Находим начало HTTP.                                                    *
    *************************************************************************/
   uint16_t tcphLen = (tcpHdr->doff << 2);
-  packet += tcphLen;
-
-  if ((iphLen + tcphLen) > totalLen)
+  if (tcphLen < sizeof(struct tcphdr) || tcphLen > totalLen - iphLen)
     return false;
+  packet += tcphLen;
 
   uint16_t dataLen = (totalLen - iphLen - tcphLen);
 
@@ -291,6 +294,11 @@ bool ProcessRawPacketHTTP(uint8_t *packet, size_t packetSize,
    *************************************************************************/
   bool result = false;
   if (CheckURL(threadData->hashTable, packet, dataLen)) {
+    if (threadData->redirectDataLen <
+            IP4_HDRLEN + sizeof(struct tcphdr) ||
+        threadData->redirectDataLen > UINT16_MAX)
+      return false;
+
     struct sockaddr_ll sin;
     memset(&sin, 0, sizeof(struct sockaddr_ll));
     sin.sll_family = AF_PACKET;
