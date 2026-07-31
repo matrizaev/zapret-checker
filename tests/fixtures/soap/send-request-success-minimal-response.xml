@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Body>
+    <ns1:sendRequestResponse xmlns:ns1="http://vigruzki.rkn.gov.ru/OperatorRequest/">
+      <result>true</result>
+      <code>SYNTHETIC-CONTRACT-CODE</code>
+    </ns1:sendRequestResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

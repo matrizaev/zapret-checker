@@ -2,9 +2,9 @@
 <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
   <SOAP-ENV:Body>
     <ns1:getLastDumpDateExResponse xmlns:ns1="urn:zapret-checker:test">
-      <lastDumpDate> 2024-01-02T03:04:05+00:00 </lastDumpDate>
-      <lastDumpDateUrgently> 2024-01-02T04:05:06+00:00 </lastDumpDateUrgently>
-      <lastDumpDateSocResources> 2024-01-02T05:06:07+00:00 </lastDumpDateSocResources>
+      <lastDumpDate> 1704164645000 </lastDumpDate>
+      <lastDumpDateUrgently> 1704168306000 </lastDumpDateUrgently>
+      <lastDumpDateSocResources> 1704171907000 </lastDumpDateSocResources>
       <webServiceVersion> test-service-1 </webServiceVersion>
       <dumpFormatVersion> test-format-2 </dumpFormatVersion>
       <dumpFormatVersionSocResources> test-social-format-3 </dumpFormatVersionSocResources>

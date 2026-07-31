@@ -17,7 +17,9 @@ typedef enum {
   REPLAY_POLL_TIMEOUT,
   REPLAY_HTTP_FAILURE,
   REPLAY_SOAP_FAULT,
-  REPLAY_MALFORMED_SEND_RESPONSE
+  REPLAY_MALFORMED_SEND_RESPONSE,
+  REPLAY_SEND_REJECTED,
+  REPLAY_RESULT_ERROR
 } TReplayScenario;
 
 typedef struct {
@@ -138,7 +140,11 @@ static const char *ExpectedFixture(void) {
   if (replay.requests == 0)
     return "get-last-dump-date-response.xml";
   if (replay.requests == 1)
-    return "send-request-response.xml";
+    return replay.scenario == REPLAY_SEND_REJECTED
+               ? "send-request-rejected-response.xml"
+               : "send-request-response.xml";
+  if (replay.scenario == REPLAY_RESULT_ERROR && replay.requests == 2)
+    return "get-result-error-response.xml";
   if (replay.scenario == REPLAY_IMMEDIATE_RESULT && replay.requests == 2)
     return "get-result-complete-response.xml";
   if (replay.scenario == REPLAY_IMMEDIATE_RESULT && replay.requests == 3)
@@ -244,9 +250,9 @@ static TScenarioOutcome RunScenario(TReplayScenario scenario) {
     context.soapContext = calloc(1, sizeof(*context.soapContext));
     if (context.soapContext != NULL) {
       context.soapContext->lastDumpDate =
-          strdup("2024-01-02T03:04:05+00:00");
+          strdup("1704164645000");
       context.soapContext->lastDumpDateUrgently =
-          strdup("2024-01-02T04:05:06+00:00");
+          strdup("1704168306000");
     }
   }
 
@@ -357,6 +363,37 @@ static MunitResult TestMalformedSendResponseIsRejected(
   return MUNIT_OK;
 }
 
+static MunitResult TestRejectedSendRequestStopsInteraction(
+    const MunitParameter parameters[], void *fixture) {
+  TScenarioOutcome outcome = RunScenario(REPLAY_SEND_REJECTED);
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_false(outcome.validationFailed);
+  munit_assert_size(outcome.requests, ==, 2);
+  munit_assert_size(outcome.sleeps, ==, 0);
+  munit_assert_false(outcome.soapResult);
+  return MUNIT_OK;
+}
+
+static MunitResult TestDocumentedResultErrorStopsPolling(
+    const MunitParameter parameters[], void *fixture) {
+  TScenarioOutcome outcome = RunScenario(REPLAY_RESULT_ERROR);
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_false(outcome.validationFailed);
+  munit_assert_size(outcome.requests, ==, 3);
+  munit_assert_size(outcome.sleeps, ==, 1);
+  munit_assert_int(outcome.resultCode, ==, -18);
+  munit_assert_false(outcome.soapResult);
+  munit_assert_false(outcome.blacklistReceived);
+  munit_assert_false(outcome.socialReceived);
+  return MUNIT_OK;
+}
+
 static MunitTest SoapScenarioTests[] = {
     {"/no-update", TestNoUpdateStopsAfterDateCheck, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -369,6 +406,10 @@ static MunitTest SoapScenarioTests[] = {
     {"/soap-fault", TestSoapFaultIsRejected, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {"/malformed-send-response", TestMalformedSendResponseIsRejected, NULL,
+     NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/rejected-send-request", TestRejectedSendRequestStopsInteraction, NULL,
+     NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/documented-result-error", TestDocumentedResultErrorStopsPolling, NULL,
      NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
 };

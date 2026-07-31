@@ -83,6 +83,31 @@ typedef struct {
   size_t signatureFileLength;
 } TPreparedSOAPRequest;
 
+static bool IsXMLBoolean(const char *value) {
+  return value != NULL &&
+         (!strcmp(value, "true") || !strcmp(value, "false") ||
+          !strcmp(value, "1") || !strcmp(value, "0"));
+}
+
+static bool XMLBooleanIsTrue(const char *value) {
+  return value != NULL && (!strcmp(value, "true") || !strcmp(value, "1"));
+}
+
+static bool ParseXMLInt(const char *value, int *result) {
+  char *end = NULL;
+  long parsed = 0;
+
+  if (value == NULL || result == NULL || value[0] == '\0')
+    return false;
+  errno = 0;
+  parsed = strtol(value, &end, 10);
+  if (errno == ERANGE || end == value || *end != '\0' || parsed < INT_MIN ||
+      parsed > INT_MAX)
+    return false;
+  *result = (int)parsed;
+  return true;
+}
+
 /*************************************************************************
  * Генерирует plain-text дамп запроса оператора к SOAP серверу.           *
  * Параметр requestTime обновляется в соотвествии с текущей датой.        *
@@ -284,6 +309,10 @@ bool SendRequestResponse(TSOAPContext *context, const char *soapXml,
 
   check(soapXml != NULL && context != NULL && inputLength > 0,
         ERROR_STR_INVALIDINPUT);
+  if (context->requestResult != NULL) {
+    free(context->requestResult);
+    context->requestResult = NULL;
+  }
   if (context->requestComment != NULL) {
     free(context->requestComment);
     context->requestComment = NULL;
@@ -352,9 +381,7 @@ bool SendRequestResponse(TSOAPContext *context, const char *soapXml,
       nodeVal = NULL;
     }
   }
-  check(context->requestResult != NULL && context->requestCode != NULL &&
-            context->requestComment != NULL,
-        ERROR_STR_INVALIDXML);
+  check(IsXMLBoolean(context->requestResult), ERROR_STR_INVALIDXML);
   exitCode = true;
 error:
   if (nodeVal != NULL)
@@ -373,9 +400,15 @@ bool GetResultResponse(TSOAPContext *context, const char *soapXml,
   xmlNodePtr node = NULL;
   xmlChar *nodeVal = NULL;
   bool exitCode = false;
+  bool resultCodeFound = false;
 
   check(soapXml != NULL && context != NULL && inputLength > 0,
         ERROR_STR_INVALIDINPUT);
+  if (context->resultResult != NULL) {
+    free(context->resultResult);
+    context->resultResult = NULL;
+  }
+  context->resultCode = 0;
   if (context->resultComment != NULL) {
     free(context->resultComment);
     context->resultComment = NULL;
@@ -456,7 +489,11 @@ bool GetResultResponse(TSOAPContext *context, const char *soapXml,
     if (!xmlStrcmp(node->name, BAD_CAST "resultCode")) {
       nodeVal = xmlNodeGetContent(node->xmlChildrenNode);
       check(nodeVal != NULL, ERROR_STR_INVALIDXML);
-      context->resultCode = atoi((char *)nodeVal);
+      char *trimmed = TrimWhiteSpaces((char *)nodeVal);
+      check(trimmed != NULL &&
+                ParseXMLInt(trimmed, &context->resultCode),
+            ERROR_STR_INVALIDSTRING);
+      resultCodeFound = true;
       xmlFree(nodeVal);
       nodeVal = NULL;
       continue;
@@ -487,7 +524,8 @@ bool GetResultResponse(TSOAPContext *context, const char *soapXml,
       }
     }
   }
-  check((context->resultResult != NULL), ERROR_STR_INVALIDXML);
+  check(IsXMLBoolean(context->resultResult) && resultCodeFound,
+        ERROR_STR_INVALIDXML);
   exitCode = true;
 error:
   if (nodeVal != NULL)
@@ -867,6 +905,10 @@ PerformSOAPCommunicationInternal(TZapretContext *context,
   log_info("SOAP: sendRequestResponse");
   check(SendRequestResponse(context->soapContext, response, resultSize) == true,
         ERROR_STR_SOAP, soapMethods[SOAP_METHOD_sendRequestResponse]);
+  check(XMLBooleanIsTrue(context->soapContext->requestResult) &&
+            context->soapContext->requestCode != NULL &&
+            context->soapContext->requestCode[0] != '\0',
+        ERROR_STR_SOAP, soapMethods[SOAP_METHOD_sendRequestResponse]);
   free(response);
   response = NULL;
 
@@ -907,7 +949,10 @@ PerformSOAPCommunicationInternal(TZapretContext *context,
 
     repeatCount++;
   }
-  check(context->soapContext->resultCode == 1, ERROR_STR_SOAP,
+  check(XMLBooleanIsTrue(context->soapContext->resultResult) &&
+            context->soapContext->resultCode == 1 &&
+            context->soapContext->registerZipArchive != NULL,
+        ERROR_STR_SOAP,
         soapMethods[SOAP_METHOD_getResultResponse]);
   context->soapContext->soapResult = true;
 

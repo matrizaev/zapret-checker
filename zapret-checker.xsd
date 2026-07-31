@@ -57,23 +57,19 @@
 										<xs:element name="operatorName" type="xs:string" />
 										<xs:element name="inn">
 											<xs:simpleType>
-												<xs:restriction base="xs:integer">
-													<xs:minInclusive value="0" />
-													<xs:totalDigits value="10" />
-													<xs:pattern value="[0-9]{10}" />
+												<xs:restriction base="xs:string">
+													<xs:pattern value="[0-9]{10}|[0-9]{12}" />
 												</xs:restriction>
 											</xs:simpleType>
 										</xs:element>
 										<xs:element name="ogrn">
 											<xs:simpleType>
-												<xs:restriction base="xs:integer">
-													<xs:totalDigits value="13" />
-													<xs:minInclusive value="0" />
-													<xs:pattern value="[0-9]{13}" />
+												<xs:restriction base="xs:string">
+													<xs:pattern value="[0-9]{13}|[0-9]{15}" />
 												</xs:restriction>
 											</xs:simpleType>
 										</xs:element>
-										<xs:element name="email" type="emailType" />
+										<xs:element name="email" type="emailType" minOccurs="0" />
 									</xs:sequence>
 								</xs:complexType>
 							</xs:element>

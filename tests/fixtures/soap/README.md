@@ -21,3 +21,9 @@ used as a committed test fixture.
 uses synthetic identity data. The production PKCS#7 signature is not copied:
 the prepared-request path treats it as opaque bytes, and retaining a live
 signature would add sensitive material without improving parser coverage.
+
+The contract fixtures ending in `minimal-response`, `rejected-response`, and
+`error-response` are derived from the public OperatorRequest WSDL and operator
+guide version 4.13 (2024-08-12). They cover optional `sendRequestResponse`
+fields and the documented terminal negative `getResult` codes without copying
+operator data or credentials from the ignored capture directory.

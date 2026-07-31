@@ -253,6 +253,36 @@ static MunitResult TestRejectsInvalidArguments(
   return MUNIT_OK;
 }
 
+static MunitResult TestLoadsDocumentedIndividualEntrepreneurRequest(
+    const MunitParameter parameters[], void *fixtureData) {
+  static const char configuration[] =
+      "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+      "<zapret-checker><rknBlacklist>"
+      "<host>https://soap.example.test/</host>"
+      "<privateKey password=\"secret\">0a0b</privateKey>"
+      "<cooldown positive=\"60\" negative=\"30\"/>"
+      "<request>"
+      "<requestTime>2024-01-02T03:04:05Z</requestTime>"
+      "<operatorName>Example individual entrepreneur</operatorName>"
+      "<inn>123456789012</inn>"
+      "<ogrn>123456789012345</ogrn>"
+      "</request>"
+      "</rknBlacklist></zapret-checker>";
+  ConfigurationFixture *fixture = fixtureData;
+  TZapretContext context = {0};
+
+  (void)parameters;
+
+  munit_assert_true(
+      WriteTextFile(fixture->configurationFile, configuration));
+  munit_assert_true(
+      ReadZapretConfiguration(&context, fixture->configurationFile));
+  munit_assert_not_null(context.requestXmlDoc);
+
+  FreeConfiguration(&context);
+  return MUNIT_OK;
+}
+
 static MunitTest configurationTests[] = {
     {"/explicit-path", TestLoadsConfigurationFromExplicitPath,
      ConfigurationSetup, ConfigurationTearDown, MUNIT_TEST_OPTION_NONE, NULL},
@@ -261,6 +291,9 @@ static MunitTest configurationTests[] = {
     {"/invalid-file", TestRejectsInvalidConfiguration, ConfigurationSetup,
      ConfigurationTearDown, MUNIT_TEST_OPTION_NONE, NULL},
     {"/invalid-arguments", TestRejectsInvalidArguments, ConfigurationSetup,
+     ConfigurationTearDown, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/individual-entrepreneur-request",
+     TestLoadsDocumentedIndividualEntrepreneurRequest, ConfigurationSetup,
      ConfigurationTearDown, MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL}};
 

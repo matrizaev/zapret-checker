@@ -101,12 +101,10 @@ static MunitResult TestLastDumpDateResponse(
   munit_assert_not_null(response);
   munit_assert_true(
       GetLastDumpDateResponse(&context, response, responseLength));
-  munit_assert_string_equal(context.lastDumpDate,
-                            "2024-01-02T03:04:05+00:00");
-  munit_assert_string_equal(context.lastDumpDateUrgently,
-                            "2024-01-02T04:05:06+00:00");
+  munit_assert_string_equal(context.lastDumpDate, "1704164645000");
+  munit_assert_string_equal(context.lastDumpDateUrgently, "1704168306000");
   munit_assert_string_equal(context.lastDumpDateSocResources,
-                            "2024-01-02T05:06:07+00:00");
+                            "1704171907000");
   munit_assert_string_equal(context.webServiceVersion, "test-service-1");
   munit_assert_string_equal(context.dumpFormatVersion, "test-format-2");
   munit_assert_string_equal(context.dumpFormatVersionSocResources,
@@ -161,6 +159,7 @@ static MunitResult TestCapturedSoapSequence(
 
   munit_assert_true(GetResultResponse(&context, responses[3], lengths[3]));
   munit_assert_int(context.resultCode, ==, 1);
+  munit_assert_string_equal(context.resultResult, "true");
   munit_assert_string_equal(context.registerZipArchive,
                             "U0FOSVRJWkVEX0JMQUNLTElTVF9BUkNISVZF");
   munit_assert_string_equal(context.operatorName, "Synthetic Operator");
@@ -173,6 +172,63 @@ static MunitResult TestCapturedSoapSequence(
 
   for (size_t i = 0; i < sizeof(responses) / sizeof(responses[0]); i++)
     free(responses[i]);
+  FreeSoapContextFields(&context);
+  return MUNIT_OK;
+}
+
+static MunitResult TestWsdlOptionalSendResponseFields(
+    const MunitParameter parameters[], void *fixture) {
+  TSOAPContext context = {0};
+  size_t responseLength = 0;
+  char *response = NULL;
+
+  (void)parameters;
+  (void)fixture;
+
+  response = ReadSoapFixture("send-request-success-minimal-response.xml",
+                             &responseLength);
+  munit_assert_not_null(response);
+  munit_assert_true(
+      SendRequestResponse(&context, response, responseLength));
+  munit_assert_string_equal(context.requestResult, "true");
+  munit_assert_string_equal(context.requestCode, "SYNTHETIC-CONTRACT-CODE");
+  munit_assert_null(context.requestComment);
+  free(response);
+
+  response = ReadSoapFixture("send-request-rejected-response.xml",
+                             &responseLength);
+  munit_assert_not_null(response);
+  munit_assert_true(
+      SendRequestResponse(&context, response, responseLength));
+  munit_assert_string_equal(context.requestResult, "false");
+  munit_assert_null(context.requestCode);
+  munit_assert_string_equal(context.requestComment,
+                            "synthetic request rejection");
+
+  free(response);
+  FreeSoapContextFields(&context);
+  return MUNIT_OK;
+}
+
+static MunitResult TestWsdlRequiredResultFields(
+    const MunitParameter parameters[], void *fixture) {
+  static const char missingResultCode[] =
+      "<Envelope><Body><getResultResponse><result>false</result>"
+      "</getResultResponse></Body></Envelope>";
+  static const char invalidResultCode[] =
+      "<Envelope><Body><getResultResponse><result>false</result>"
+      "<resultCode>not-an-integer</resultCode>"
+      "</getResultResponse></Body></Envelope>";
+  TSOAPContext context = {0};
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_false(GetResultResponse(
+      &context, missingResultCode, sizeof(missingResultCode) - 1));
+  munit_assert_false(GetResultResponse(
+      &context, invalidResultCode, sizeof(invalidResultCode) - 1));
+
   FreeSoapContextFields(&context);
   return MUNIT_OK;
 }
@@ -299,6 +355,11 @@ static MunitTest SoapTests[] = {
      MUNIT_TEST_OPTION_NONE, NULL},
     {"/completed-result-in-fresh-context", TestCompletedResultInFreshContext,
      NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/wsdl-optional-send-response-fields",
+     TestWsdlOptionalSendResponseFields, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {"/wsdl-required-result-fields", TestWsdlRequiredResultFields, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
     {"/malformed-responses-are-rejected", TestMalformedResponsesAreRejected,
      NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {"/operator-request-timestamp-is-regenerated",
