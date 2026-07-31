@@ -6,6 +6,9 @@
 #include <arpa/inet.h>
 #include <idn2.h>
 #include <libxml/xmlmemory.h>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #include <netdb.h>
 #include <netinet/in.h>
 #include <zip.h>
@@ -13,6 +16,12 @@
 #include "zapret-checker.h"
 
 #define DUMP_XML_FILENAME "dump.xml"
+
+static void TrimUnusedHeap(void) {
+#if defined(__GLIBC__)
+  (void)malloc_trim(0);
+#endif
+}
 
 static int ZipReadCallback(void *context, char *buffer, int len) {
   if (context == NULL || buffer == NULL || len <= 0)
@@ -78,7 +87,8 @@ static bool ParseRegisterXml(xmlInputReadCallback readCallback, void *readCtx,
     check(hashTables[i] != NULL, ERROR_STR_INVALIDINPUT);
   }
   doc = xmlReadIO((xmlInputReadCallback)readCallback, NULL, readCtx, NULL,
-                  "windows-1251", XML_PARSE_NOBLANKS | XML_PARSE_NONET);
+                  "windows-1251",
+                  XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_COMPACT);
   check(doc != NULL, ERROR_STR_INVALIDXML);
   node = xmlDocGetRootElement(doc);
   check(node != NULL, ERROR_STR_INVALIDXML);
@@ -240,6 +250,7 @@ pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
   zip_fclose(zipFile);
   zip_close(zipArchive);
   free(decodedZipArchive);
+  TrimUnusedHeap();
   return result;
 error:
   if (result != NULL) {
@@ -259,6 +270,7 @@ error:
     zip_source_free(zipSource);
   if (decodedZipArchive != NULL)
     free(decodedZipArchive);
+  TrimUnusedHeap();
   return NULL;
 }
 
@@ -280,5 +292,7 @@ bool ProcessRegisterCustomBlacklist(bool makeNSLookup, char *customBlackList,
 error:
   if (customFD != -1)
     close(customFD);
+  if (customBlackList != NULL)
+    TrimUnusedHeap();
   return exitCode;
 }

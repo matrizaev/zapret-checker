@@ -107,6 +107,6 @@ defaults:
 ```
 
 `estimated_bytes` counts requested table, node, key, and value storage but not
-allocator metadata. `post_parse_rss_kib` shows memory before glibc releases
-unused heap pages, while `trimmed_rss_kib` shows the live process footprint after
-`malloc_trim()`. `peak_rss_kib` also includes the parser's temporary DOM.
+allocator metadata. `loaded_rss_kib` shows the live process footprint after the
+production parser releases unused glibc heap pages. `peak_rss_kib` also includes
+the parser's temporary DOM.

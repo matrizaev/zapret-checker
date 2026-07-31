@@ -7,7 +7,6 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <malloc.h>
 
 #include <libxml/parser.h>
 
@@ -562,11 +561,8 @@ int main(int argc, char **argv) {
   uint64_t loadNanoseconds = 0;
   size_t baselineRssKiB = 0;
   size_t baselinePeakRssKiB = 0;
-  size_t postParseRssKiB = 0;
-  size_t postParsePeakRssKiB = 0;
   size_t loadedRssKiB = 0;
   size_t loadedPeakRssKiB = 0;
-  int memoryTrimmed = 0;
   int exitCode = EXIT_FAILURE;
 
   memset(stats, 0, sizeof(stats));
@@ -610,20 +606,15 @@ int main(int argc, char **argv) {
   }
   clock_gettime(CLOCK_MONOTONIC, &loadEnd);
   loadNanoseconds = ElapsedNanoseconds(&loadStart, &loadEnd);
-  ReadMemoryStatus(&postParseRssKiB, &postParsePeakRssKiB);
-  memoryTrimmed = malloc_trim(0);
   ReadMemoryStatus(&loadedRssKiB, &loadedPeakRssKiB);
 
   printf("load total_ns=%" PRIu64 " seconds=%.3f\n", loadNanoseconds,
          (double)loadNanoseconds / 1000000000.0);
-  printf("memory baseline_rss_kib=%zu post_parse_rss_kib=%zu "
-         "trimmed_rss_kib=%zu trimmed_rss_delta_kib=%zu peak_rss_kib=%zu "
-         "malloc_trim_released=%d\n",
-         baselineRssKiB, postParseRssKiB, loadedRssKiB,
+  printf("memory baseline_rss_kib=%zu loaded_rss_kib=%zu rss_delta_kib=%zu "
+         "peak_rss_kib=%zu\n",
+         baselineRssKiB, loadedRssKiB,
          loadedRssKiB > baselineRssKiB ? loadedRssKiB - baselineRssKiB : 0,
-         loadedPeakRssKiB > postParsePeakRssKiB ? loadedPeakRssKiB
-                                                : postParsePeakRssKiB,
-         memoryTrimmed);
+         loadedPeakRssKiB);
 
   for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
     double loadFactor = 0.0;
