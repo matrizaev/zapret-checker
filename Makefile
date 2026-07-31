@@ -85,7 +85,7 @@ $(SOAP_SCENARIO_TEST_TARGET): tests/test_soap_scenarios.c $(SOAP_TEST_FIXTURES) 
 	$(CC) $(TEST_CFLAGS) tests/test_soap_scenarios.c tests/vendor/munit/munit.c zapret-soap.c util.c sign.c $(TEST_LDFLAGS) -ldl -Wl,--wrap=SendHTTPPost -Wl,--wrap=sleep -o $(SOAP_SCENARIO_TEST_TARGET)
 
 $(REGISTER_TEST_TARGET): tests/test_register.c $(REGISTER_TEST_FIXTURES) tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-process.c zapret-checker.h zapret-structures.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
-	$(CC) $(TEST_CFLAGS) `pkg-config --cflags libzip` tests/test_register.c tests/vendor/munit/munit.c zapret-process.c util.c pfhash.c $(TEST_LDFLAGS) `pkg-config --libs libzip` -lidn2 -o $(REGISTER_TEST_TARGET)
+	$(CC) $(TEST_CFLAGS) `pkg-config --cflags libzip` tests/test_register.c tests/vendor/munit/munit.c zapret-process.c util.c pfhash.c $(TEST_LDFLAGS) `pkg-config --libs libzip` -lidn2 -Wl,--wrap=getaddrinfo -Wl,--wrap=freeaddrinfo -o $(REGISTER_TEST_TARGET)
 
 $(CONFIGURATION_TEST_TARGET): tests/test_configuration.c $(CONFIGURATION_TEST_FIXTURES) tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-configuration.c zapret-configuration.h zapret-configuration.h.include zapret-checker.h zapret-structures.h util.c util.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) tests/test_configuration.c tests/vendor/munit/munit.c zapret-configuration.c util.c $(TEST_LDFLAGS) -o $(CONFIGURATION_TEST_TARGET)
@@ -123,7 +123,7 @@ $(SOAP_SCENARIO_TEST_SANITIZER_TARGET): tests/test_soap_scenarios.c $(SOAP_TEST_
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_soap_scenarios.c tests/vendor/munit/munit.c zapret-soap.c util.c sign.c $(TEST_LDFLAGS) -ldl -Wl,--wrap=SendHTTPPost -Wl,--wrap=sleep $(SANITIZER_FLAGS) -o $(SOAP_SCENARIO_TEST_SANITIZER_TARGET)
 
 $(REGISTER_TEST_SANITIZER_TARGET): tests/test_register.c $(REGISTER_TEST_FIXTURES) tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-process.c zapret-checker.h zapret-structures.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
-	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) `pkg-config --cflags libzip` tests/test_register.c tests/vendor/munit/munit.c zapret-process.c util.c pfhash.c $(TEST_LDFLAGS) `pkg-config --libs libzip` -lidn2 $(SANITIZER_FLAGS) -o $(REGISTER_TEST_SANITIZER_TARGET)
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) `pkg-config --cflags libzip` tests/test_register.c tests/vendor/munit/munit.c zapret-process.c util.c pfhash.c $(TEST_LDFLAGS) `pkg-config --libs libzip` -lidn2 -Wl,--wrap=getaddrinfo -Wl,--wrap=freeaddrinfo $(SANITIZER_FLAGS) -o $(REGISTER_TEST_SANITIZER_TARGET)
 
 $(CONFIGURATION_TEST_SANITIZER_TARGET): tests/test_configuration.c $(CONFIGURATION_TEST_FIXTURES) tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-configuration.c zapret-configuration.h zapret-configuration.h.include zapret-checker.h zapret-structures.h util.c util.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_configuration.c tests/vendor/munit/munit.c zapret-configuration.c util.c $(TEST_LDFLAGS) $(SANITIZER_FLAGS) -o $(CONFIGURATION_TEST_SANITIZER_TARGET)
