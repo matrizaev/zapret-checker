@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<reg:register xmlns:reg="urn:zapret-checker:test" updateTime="2024-01-02T03:04:05+00:00">
+  <content>
+    <decision>synthetic-decision-1</decision>
+    <url>http://Example.COM/blocked%20path#ignored-fragment</url>
+    <domain>ignored-because-url-was-present.example</domain>
+    <ip>192.0.2.1</ip>
+  </content>
+  <content>
+    <decision>synthetic-decision-2</decision>
+    <domain>Standalone.Example</domain>
+    <ip>198.51.100.2</ip>
+  </content>
+</reg:register>

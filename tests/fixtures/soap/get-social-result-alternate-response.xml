@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Body>
+    <ns1:getResultSocResourcesResponse xmlns:ns1="urn:zapret-checker:test">
+      <socialZipArchive> U0FOSVRJWkVEX0FMVEVSTkFURV9TT0NJQUw= </socialZipArchive>
+    </ns1:getResultSocResourcesResponse>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

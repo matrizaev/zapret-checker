@@ -11,12 +11,14 @@ rutoken-sign
 /tests/test_soap-sanitize
 /tests/test_soap_interaction
 /tests/test_soap_interaction-sanitize
+/tests/test_soap_scenarios
+/tests/test_soap_scenarios-sanitize
 /tests/test_register
 /tests/test_register-sanitize
 /zapret-soap-capture/
 .vscode/
 request.xml
 request.xml.sign
-blacklist.xml
-social.xml
+/blacklist.xml
+/social.xml
 zapret-checker.xml

@@ -271,6 +271,27 @@ static MunitResult TestOperatorRequestTimestampIsRegenerated(
   return MUNIT_OK;
 }
 
+static MunitResult TestAlternateSocialResponseNames(
+    const MunitParameter parameters[], void *fixture) {
+  TSOAPContext context = {0};
+  size_t responseLength = 0;
+  char *response = ReadSoapFixture(
+      "get-social-result-alternate-response.xml", &responseLength);
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_not_null(response);
+  munit_assert_true(GetResultSocResourcesResponse(
+      &context, response, responseLength));
+  munit_assert_string_equal(context.socialZipArchive,
+                            "U0FOSVRJWkVEX0FMVEVSTkFURV9TT0NJQUw=");
+
+  free(response);
+  FreeSoapContextFields(&context);
+  return MUNIT_OK;
+}
+
 static MunitTest SoapTests[] = {
     {"/last-dump-date-response", TestLastDumpDateResponse, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -283,6 +304,8 @@ static MunitTest SoapTests[] = {
     {"/operator-request-timestamp-is-regenerated",
      TestOperatorRequestTimestampIsRegenerated, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
+    {"/alternate-social-response-names", TestAlternateSocialResponseNames,
+     NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
 };
 
