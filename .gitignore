@@ -3,7 +3,6 @@ zapret-configuration.h.include
 *.crt
 zapret-checker
 zapret-download
-request.xml
 rutoken-sign
 /tests/test_core
 /tests/test_core-sanitize
@@ -21,8 +20,8 @@ rutoken-sign
 /tests/test_http_transport-sanitize
 /zapret-soap-capture/
 .vscode/
-request.xml
-request.xml.sign
+/request.xml
+/request.xml.sign
 /blacklist.xml
 /social.xml
-zapret-checker.xml
+/zapret-checker.xml

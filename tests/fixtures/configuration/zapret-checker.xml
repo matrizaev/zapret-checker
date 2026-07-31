@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<zapret-checker xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:noNamespaceSchemaLocation="zapret-checker.xsd">
+  <redirect>
+    <host> 192.0.2.10 </host>
+    <http queue="10" count="2"/>
+    <dns queue="20" count="1"/>
+    <ipsetList nsLookup="true"> blocked </ipsetList>
+    <iface> eth0 </iface>
+  </redirect>
+  <smtp>
+    <host> mail.example.test </host>
+    <sender> sender@example.test </sender>
+    <recipient attachments="true"> archive@example.test </recipient>
+    <recipient attachments="false"> notice@example.test </recipient>
+  </smtp>
+  <rknBlacklist>
+    <host> https://soap.example.test/ </host>
+    <privateKey password=" secret ">0a0b</privateKey>
+    <cooldown positive="60" negative="30"/>
+    <timestampFile>timestamp</timestampFile>
+    <request>
+      <requestTime>2024-01-02T03:04:05Z</requestTime>
+      <operatorName>Example operator</operatorName>
+      <inn>0123456789</inn>
+      <ogrn>0123456789012</ogrn>
+      <email>operator@example.test</email>
+    </request>
+  </rknBlacklist>
+  <customBlacklist>custom.xml</customBlacklist>
+</zapret-checker>
