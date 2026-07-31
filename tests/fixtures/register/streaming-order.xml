@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<register updateTime="2024-01-02T03:04:05+00:00">
+  <content>
+    <domain>before-url.example</domain>
+    <ip>192.0.2.10</ip>
+    <url><![CDATA[http://Order.Example/blocked%20path#fragment]]></url>
+    <domain>after-url.example</domain>
+    <ip>192.0.2.11</ip>
+  </content>
+  <content>
+    <url>https://unsupported.example/blocked</url>
+    <domain>after-unsupported-url.example</domain>
+    <ipSubnet>198.51.100.0/24</ipSubnet>
+  </content>
+</register>

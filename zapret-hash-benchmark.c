@@ -37,6 +37,8 @@ typedef struct {
   size_t maxValuesPerKey;
   size_t estimatedBytes;
   long double successfulProbeTotal;
+  uint64_t fingerprintXor;
+  uint64_t fingerprintSum;
 } TTableStats;
 
 typedef struct {
@@ -232,6 +234,29 @@ static bool ReadMemoryStatus(size_t *rssKiB, size_t *peakRssKiB) {
   return rssFound && peakFound;
 }
 
+static uint64_t FingerprintString(uint64_t hash, const char *value) {
+  const unsigned char *cursor = (const unsigned char *)value;
+
+  while (*cursor != '\0') {
+    hash ^= *cursor++;
+    hash *= UINT64_C(1099511628211);
+  }
+  return hash;
+}
+
+static void AddFingerprint(TTableStats *stats, const char *key,
+                           const char *value) {
+  uint64_t hash = UINT64_C(14695981039346656037);
+
+  hash = FingerprintString(hash, key);
+  hash ^= value == NULL ? UINT64_C(0xfe) : UINT64_C(0xff);
+  hash *= UINT64_C(1099511628211);
+  if (value != NULL)
+    hash = FingerprintString(hash, value);
+  stats->fingerprintXor ^= hash;
+  stats->fingerprintSum += hash;
+}
+
 static bool GatherTableStats(const pfHashTable *table, TTableStats *stats) {
   size_t bucketBytes = 0;
 
@@ -261,6 +286,7 @@ static bool GatherTableStats(const pfHashTable *table, TTableStats *stats) {
         return false;
       stats->keyCount++;
       chainLength++;
+      AddFingerprint(stats, node->key, NULL);
 
       for (const TStringList *value = node->data; value != NULL;
            value = value->next) {
@@ -276,6 +302,7 @@ static bool GatherTableStats(const pfHashTable *table, TTableStats *stats) {
           return false;
         stats->valueCount++;
         valuesForKey++;
+        AddFingerprint(stats, node->key, value->value);
       }
       if (valuesForKey > stats->maxValuesPerKey)
         stats->maxValuesPerKey = valuesForKey;
@@ -643,12 +670,14 @@ int main(int argc, char **argv) {
            "load_factor=%.6f average_nonempty_chain=%.6f max_chain=%zu "
            "average_successful_probes=%.6f average_unsuccessful_probes=%.6f "
            "average_values_per_key=%.6f max_values_per_key=%zu "
-           "estimated_bytes=%zu\n",
+           "estimated_bytes=%zu fingerprint_xor=%016" PRIx64
+           " fingerprint_sum=%016" PRIx64 "\n",
            tableNames[i], options.bucketCounts[i], stats[i].keyCount,
            stats[i].valueCount, stats[i].nonemptyBucketCount, loadFactor,
            averageNonemptyChain, stats[i].maxChainLength,
            averageSuccessfulProbes, loadFactor, averageValuesPerKey,
-           stats[i].maxValuesPerKey, stats[i].estimatedBytes);
+           stats[i].maxValuesPerKey, stats[i].estimatedBytes,
+           stats[i].fingerprintXor, stats[i].fingerprintSum);
 
     keySamples = stats[i].keyCount < options.sampleCount
                      ? stats[i].keyCount

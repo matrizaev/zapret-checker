@@ -146,10 +146,86 @@ static MunitResult TestPlainRegisterDocuments(
   return MUNIT_OK;
 }
 
+static MunitResult TestStreamingPreservesFieldOrder(
+    const MunitParameter parameters[], void *fixture) {
+  static char orderingPath[] =
+      REGISTER_FIXTURE_DIRECTORY "/streaming-order.xml";
+  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_true(InitializeHashTables(tables));
+  munit_assert_true(pfHashSet(tables[NETFILTER_TYPE_HTTP], "order.example",
+                              "/existing"));
+  munit_assert_true(
+      ProcessRegisterCustomBlacklist(false, orderingPath, tables));
+  munit_assert_true(
+      ContainsDomain(tables[NETFILTER_TYPE_DNS], "before-url.example"));
+  munit_assert_true(
+      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.10"));
+  munit_assert_true(pfHashCheckExists(
+      tables[NETFILTER_TYPE_HTTP], "order.example", "/blocked path"));
+  munit_assert_true(pfHashCheckExists(
+      tables[NETFILTER_TYPE_HTTP], "order.example", "/existing"));
+  munit_assert_false(
+      ContainsDomain(tables[NETFILTER_TYPE_DNS], "after-url.example"));
+  munit_assert_false(
+      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.11"));
+  munit_assert_true(ContainsDomain(tables[NETFILTER_TYPE_DNS],
+                                   "after-unsupported-url.example"));
+  munit_assert_true(
+      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "198.51.100.0/24"));
+  munit_assert_true(
+      ProcessRegisterCustomBlacklist(false, orderingPath, tables));
+  munit_assert_true(pfHashCheckExists(
+      tables[NETFILTER_TYPE_HTTP], "order.example", "/blocked path"));
+  munit_assert_true(pfHashCheckExists(
+      tables[NETFILTER_TYPE_HTTP], "order.example", "/existing"));
+
+  DestroyHashTables(tables);
+  return MUNIT_OK;
+}
+
+static MunitResult TestInvalidCustomBlacklistIsAtomic(
+    const MunitParameter parameters[], void *fixture) {
+  static char malformedPath[] =
+      REGISTER_FIXTURE_DIRECTORY "/malformed.xml";
+  static char emptyFieldPath[] =
+      REGISTER_FIXTURE_DIRECTORY "/empty-field.xml";
+  pfHashTable *tables[NETFILTER_TYPE_COUNT] = {0};
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_true(InitializeHashTables(tables));
+  munit_assert_true(pfHashSet(tables[NETFILTER_TYPE_IP], "192.0.2.99", NULL));
+  munit_assert_false(
+      ProcessRegisterCustomBlacklist(false, malformedPath, tables));
+  munit_assert_false(ContainsDomain(tables[NETFILTER_TYPE_DNS],
+                                    "must-not-be-committed.example"));
+  munit_assert_false(
+      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "203.0.113.20"));
+  munit_assert_true(
+      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+
+  munit_assert_false(
+      ProcessRegisterCustomBlacklist(false, emptyFieldPath, tables));
+  munit_assert_true(
+      pfHashCheckKey(tables[NETFILTER_TYPE_IP], "192.0.2.99"));
+
+  DestroyHashTables(tables);
+  return MUNIT_OK;
+}
+
 static MunitResult TestBase64ZipRegister(
     const MunitParameter parameters[], void *fixture) {
   char *encodedArchive = NULL;
+  char timestamp[64] = {0};
+  char timestampPath[] = "/tmp/zapret-register-timestamp-XXXXXX";
   size_t encodedLength = 0;
+  ssize_t timestampLength = 0;
+  int timestampFD = -1;
   pfHashTable **tables = NULL;
 
   (void)parameters;
@@ -162,7 +238,12 @@ static MunitResult TestBase64ZipRegister(
          isspace((unsigned char)encodedArchive[encodedLength - 1]))
     encodedArchive[--encodedLength] = '\0';
 
-  tables = ProcessRegisterZipArchive(encodedArchive, false, NULL);
+  timestampFD = mkstemp(timestampPath);
+  munit_assert_int(timestampFD, >=, 0);
+  munit_assert_int(close(timestampFD), ==, 0);
+  timestampFD = -1;
+
+  tables = ProcessRegisterZipArchive(encodedArchive, false, timestampPath);
   munit_assert_not_null(tables);
   munit_assert_uint32(tables[NETFILTER_TYPE_HTTP]->numEntries, ==,
                       ZAPRET_HTTP_HASH_BUCKET_COUNT);
@@ -171,6 +252,15 @@ static MunitResult TestBase64ZipRegister(
   munit_assert_uint32(tables[NETFILTER_TYPE_IP]->numEntries, ==,
                       ZAPRET_IP_HASH_BUCKET_COUNT);
   AssertSanitizedRegisterContents(tables);
+  timestampFD = open(timestampPath, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  munit_assert_int(timestampFD, >=, 0);
+  timestampLength = read(timestampFD, timestamp, sizeof(timestamp) - 1);
+  munit_assert_int64(timestampLength, >, 0);
+  munit_assert_int(close(timestampFD), ==, 0);
+  timestampFD = -1;
+  timestamp[timestampLength] = '\0';
+  munit_assert_string_equal(timestamp, "2024-01-02T03:04:05+00:00");
+  munit_assert_int(unlink(timestampPath), ==, 0);
 
   DestroyHashTables(tables);
   free(tables);
@@ -195,6 +285,11 @@ static MunitResult TestInvalidArchiveIsRejected(
 static MunitTest RegisterTests[] = {
     {"/plain-register-documents", TestPlainRegisterDocuments, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
+    {"/streaming-preserves-field-order", TestStreamingPreservesFieldOrder,
+     NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/invalid-custom-blacklist-is-atomic",
+     TestInvalidCustomBlacklistIsAtomic, NULL, NULL, MUNIT_TEST_OPTION_NONE,
+     NULL},
     {"/base64-zip-register", TestBase64ZipRegister, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
     {"/invalid-archive-is-rejected", TestInvalidArchiveIsRejected, NULL, NULL,

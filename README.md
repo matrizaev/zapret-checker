@@ -108,5 +108,7 @@ defaults:
 
 `estimated_bytes` counts requested table, node, key, and value storage but not
 allocator metadata. `loaded_rss_kib` shows the live process footprint after the
-production parser releases unused glibc heap pages. `peak_rss_kib` also includes
-the parser's temporary DOM.
+production parser releases unused glibc heap pages. The register parser streams
+the XML and retains only the current record instead of constructing a complete
+DOM. For custom blacklist overlays, parsed entries are staged and transferred
+without copying only after the document is complete and well formed.

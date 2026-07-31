@@ -5,7 +5,7 @@
 #include "allheaders.h"
 #include <arpa/inet.h>
 #include <idn2.h>
-#include <libxml/xmlmemory.h>
+#include <libxml/xmlreader.h>
 #if defined(__GLIBC__)
 #include <malloc.h>
 #endif
@@ -34,10 +34,14 @@ static int ZipReadCallback(void *context, char *buffer, int len) {
 }
 
 static int FDReadCallback(void *context, char *buffer, int len) {
+  ssize_t bytesRead = -1;
+
   if (context == NULL || buffer == NULL || len <= 0)
     return 0;
   int fd = *((int *)context);
-  ssize_t bytesRead = read(fd, buffer, (size_t)len);
+  do {
+    bytesRead = read(fd, buffer, (size_t)len);
+  } while (bytesRead < 0 && errno == EINTR);
   if (bytesRead < 0)
     return -1;
   return (int)bytesRead;
@@ -72,136 +76,468 @@ static void MakeNSLookup(char *host, pfHashTable *hashTable) {
   return;
 }
 
+typedef enum {
+  REGISTER_FIELD_NONE,
+  REGISTER_FIELD_URL,
+  REGISTER_FIELD_DOMAIN,
+  REGISTER_FIELD_IP,
+  REGISTER_FIELD_IP_SUBNET
+} TRegisterFieldType;
+
+typedef struct TRegisterFieldStruct {
+  TRegisterFieldType type;
+  char *value;
+  struct TRegisterFieldStruct *next;
+} TRegisterField;
+
+typedef struct {
+  TRegisterField *head;
+  TRegisterField *tail;
+} TRegisterRecord;
+
+typedef struct {
+  char *data;
+  size_t length;
+  size_t capacity;
+} TRegisterText;
+
+static void ClearRegisterText(TRegisterText *text) {
+  if (text == NULL)
+    return;
+  free(text->data);
+  memset(text, 0, sizeof(*text));
+}
+
+static void ClearRegisterRecord(TRegisterRecord *record) {
+  TRegisterField *field = NULL;
+
+  if (record == NULL)
+    return;
+  field = record->head;
+  while (field != NULL) {
+    TRegisterField *next = field->next;
+    free(field->value);
+    free(field);
+    field = next;
+  }
+  memset(record, 0, sizeof(*record));
+}
+
+static bool AppendRegisterText(TRegisterText *text, const xmlChar *value) {
+  size_t valueLength = 0;
+  size_t required = 0;
+  size_t newCapacity = 0;
+  char *resized = NULL;
+
+  if (text == NULL || value == NULL)
+    return false;
+  valueLength = strlen((const char *)value);
+  if (valueLength > SIZE_MAX - text->length - 1)
+    return false;
+  required = text->length + valueLength + 1;
+  if (required > text->capacity) {
+    newCapacity = text->capacity == 0 ? 64 : text->capacity;
+    while (newCapacity < required) {
+      if (newCapacity > SIZE_MAX / 2) {
+        newCapacity = required;
+        break;
+      }
+      newCapacity *= 2;
+    }
+    resized = realloc(text->data, newCapacity);
+    if (resized == NULL)
+      return false;
+    text->data = resized;
+    text->capacity = newCapacity;
+  }
+  memcpy(text->data + text->length, value, valueLength);
+  text->length += valueLength;
+  text->data[text->length] = '\0';
+  return true;
+}
+
+static bool AddRegisterField(TRegisterRecord *record, TRegisterFieldType type,
+                             TRegisterText *text) {
+  TRegisterField *field = NULL;
+  char *trimmed = NULL;
+  size_t trimmedLength = 0;
+
+  if (record == NULL || text == NULL || type == REGISTER_FIELD_NONE ||
+      text->data == NULL)
+    return false;
+  trimmed = TrimWhiteSpaces(text->data);
+  if (trimmed == NULL)
+    return false;
+  trimmedLength = strlen(trimmed);
+  if (trimmed != text->data)
+    memmove(text->data, trimmed, trimmedLength + 1);
+
+  field = calloc(1, sizeof(*field));
+  if (field == NULL)
+    return false;
+  field->type = type;
+  field->value = text->data;
+  text->data = NULL;
+  text->length = 0;
+  text->capacity = 0;
+  if (record->tail == NULL)
+    record->head = field;
+  else
+    record->tail->next = field;
+  record->tail = field;
+  return true;
+}
+
+static TRegisterFieldType RegisterFieldType(const xmlChar *name) {
+  if (name == NULL)
+    return REGISTER_FIELD_NONE;
+  if (xmlStrEqual(name, BAD_CAST "url"))
+    return REGISTER_FIELD_URL;
+  if (xmlStrEqual(name, BAD_CAST "domain"))
+    return REGISTER_FIELD_DOMAIN;
+  if (xmlStrEqual(name, BAD_CAST "ip"))
+    return REGISTER_FIELD_IP;
+  if (xmlStrEqual(name, BAD_CAST "ipSubnet"))
+    return REGISTER_FIELD_IP_SUBNET;
+  return REGISTER_FIELD_NONE;
+}
+
+static bool ProcessRegisterURL(char *value, pfHashTable *httpHashTable) {
+  static const char httpPrefix[] = "http://";
+  uint8_t *asciiHost = NULL;
+  char *host = NULL;
+  char *url = NULL;
+  bool result = false;
+
+  if (value == NULL || httpHashTable == NULL ||
+      strncasecmp(httpPrefix, value, sizeof(httpPrefix) - 1) != 0)
+    return false;
+  host = value + sizeof(httpPrefix) - 1;
+  url = index(host, '/');
+  if (url != NULL)
+    *url = '\0';
+  if (index(host, ':') != NULL)
+    return false;
+  if (idn2_lookup_u8((uint8_t *)host, &asciiHost, 0) != IDN2_OK ||
+      asciiHost == NULL)
+    goto cleanup;
+
+  if (url == NULL)
+    url = "/";
+  else {
+    char *fragment = NULL;
+    *url = '/';
+    fragment = index(url, '#');
+    if (fragment != NULL)
+      *fragment = '\0';
+    DecodeURL(url);
+  }
+  LowerStringCase((char *)asciiHost);
+  if (pfHashSet(httpHashTable, (char *)asciiHost, url) != true)
+    log_err(ERROR_STR_HASHERROR);
+  else
+    result = true;
+
+cleanup:
+  if (asciiHost != NULL)
+    idn2_free(asciiHost);
+  return result;
+}
+
+static void ProcessRegisterDomain(char *value, bool makeNSLookup,
+                                  pfHashTable **hashTables) {
+  uint8_t *host = NULL;
+  uint8_t *dnsNotation = NULL;
+
+  if (value == NULL || hashTables == NULL)
+    return;
+  if (idn2_lookup_u8((uint8_t *)value, &host, 0) != IDN2_OK || host == NULL)
+    goto cleanup;
+  if (makeNSLookup)
+    MakeNSLookup((char *)host, hashTables[NETFILTER_TYPE_IP]);
+  dnsNotation = String2DNSNotation((char *)host);
+  if (dnsNotation != NULL &&
+      pfHashSet(hashTables[NETFILTER_TYPE_DNS], (char *)dnsNotation, NULL) !=
+          true)
+    log_err(ERROR_STR_HASHERROR);
+
+cleanup:
+  free(dnsNotation);
+  if (host != NULL)
+    idn2_free(host);
+}
+
+static void ProcessRegisterIP(char *value, pfHashTable *ipHashTable) {
+  if (value != NULL && ipHashTable != NULL &&
+      pfHashSet(ipHashTable, value, NULL) != true)
+    log_err(ERROR_STR_HASHERROR);
+}
+
+static void ProcessRegisterRecord(TRegisterRecord *record, bool makeNSLookup,
+                                  pfHashTable **hashTables) {
+  bool httpURLFound = false;
+
+  if (record == NULL || hashTables == NULL)
+    return;
+  for (TRegisterField *field = record->head; field != NULL;
+       field = field->next) {
+    switch (field->type) {
+    case REGISTER_FIELD_URL:
+      if (ProcessRegisterURL(field->value,
+                             hashTables[NETFILTER_TYPE_HTTP]))
+        httpURLFound = true;
+      break;
+    case REGISTER_FIELD_DOMAIN:
+      if (!httpURLFound)
+        ProcessRegisterDomain(field->value, makeNSLookup, hashTables);
+      break;
+    case REGISTER_FIELD_IP:
+    case REGISTER_FIELD_IP_SUBNET:
+      if (!httpURLFound)
+        ProcessRegisterIP(field->value, hashTables[NETFILTER_TYPE_IP]);
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+static bool WriteRegisterTimestamp(const xmlChar *updateTime,
+                                   const char *timestampFile) {
+  FILE *file = NULL;
+  size_t updateTimeLength = 0;
+  int closeResult = -1;
+  bool result = false;
+
+  if (timestampFile == NULL)
+    return true;
+  check(updateTime != NULL && access(timestampFile, W_OK) == 0,
+        ERROR_STR_INVALIDINPUT);
+  updateTimeLength = strlen((const char *)updateTime);
+  check(updateTimeLength > 0, ERROR_STR_INVALIDXML);
+  file = fopen(timestampFile, "w");
+  check(file != NULL, ERROR_STR_FILEFAIL);
+  check(fwrite(updateTime, 1, updateTimeLength, file) == updateTimeLength,
+        ERROR_STR_FILEFAIL);
+  closeResult = fclose(file);
+  file = NULL;
+  check(closeResult == 0, ERROR_STR_FILEFAIL);
+  result = true;
+
+error:
+  if (file != NULL && fclose(file) != 0)
+    log_err(ERROR_STR_FILEFAIL);
+  return result;
+}
+
 static bool ParseRegisterXml(xmlInputReadCallback readCallback, void *readCtx,
                              bool makeNSLookup, char *timestampFile,
                              pfHashTable **hashTables) {
-  xmlDoc *doc = NULL;
-  xmlNodePtr node = NULL;
-  xmlChar *nodeVal = NULL;
+  xmlTextReaderPtr reader = NULL;
+  TRegisterRecord record = {0};
+  TRegisterText fieldText = {0};
+  TRegisterFieldType fieldType = REGISTER_FIELD_NONE;
+  int fieldDepth = -1;
+  int recordDepth = -1;
+  int rootDepth = -1;
+  int readResult = 0;
+  xmlChar *updateTime = NULL;
+  bool inRecord = false;
+  bool rootSeen = false;
   bool result = false;
-  FILE *tmpFile = NULL;
 
   check(readCtx != NULL && readCallback != NULL && hashTables != NULL,
         ERROR_STR_INVALIDINPUT);
   for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
     check(hashTables[i] != NULL, ERROR_STR_INVALIDINPUT);
   }
-  doc = xmlReadIO((xmlInputReadCallback)readCallback, NULL, readCtx, NULL,
-                  "windows-1251",
-                  XML_PARSE_NOBLANKS | XML_PARSE_NONET | XML_PARSE_COMPACT);
-  check(doc != NULL, ERROR_STR_INVALIDXML);
-  node = xmlDocGetRootElement(doc);
-  check(node != NULL, ERROR_STR_INVALIDXML);
-  if (timestampFile != NULL) {
-    check((access(timestampFile, W_OK)) == 0, ERROR_STR_INVALIDINPUT);
-    tmpFile = fopen(timestampFile, "w");
-    check(tmpFile != NULL, ERROR_STR_FILEFAIL);
-    nodeVal = xmlGetProp(node, BAD_CAST "updateTime");
-    check(nodeVal != NULL, ERROR_STR_INVALIDXML);
-    check((fwrite(nodeVal, xmlStrlen(nodeVal), 1, tmpFile)) > 0,
-          ERROR_STR_FILEFAIL);
-    fclose(tmpFile);
-    tmpFile = NULL;
-    xmlFree(nodeVal);
-    nodeVal = NULL;
-  }
-  for (node = node->children; node != NULL; node = node->next) {
-    if (node->type != XML_ELEMENT_NODE)
-      continue;
-    bool httpURLFound = false;
+  reader = xmlReaderForIO(readCallback, NULL, readCtx, NULL, "windows-1251",
+                          XML_PARSE_NOBLANKS | XML_PARSE_NONET |
+                              XML_PARSE_COMPACT);
+  check(reader != NULL, ERROR_STR_INVALIDXML);
+
+  while ((readResult = xmlTextReaderRead(reader)) == 1) {
+    int nodeType = xmlTextReaderNodeType(reader);
+    int depth = xmlTextReaderDepth(reader);
+
     check(flagMatrixShutdown == 0 && flagMatrixReconfigure == 0,
           ERROR_STR_STOPRECONF);
-    for (xmlNode *nodeChld = node->children; nodeChld != NULL;
-         nodeChld = nodeChld->next) {
-      if (nodeChld->type != XML_ELEMENT_NODE)
-        continue;
 
-      nodeVal = xmlNodeGetContent(nodeChld->xmlChildrenNode);
-      char *tempString = TrimWhiteSpaces((char *)nodeVal);
-      if (!xmlStrcmp(nodeChld->name, BAD_CAST "url")) {
-        check(tempString != NULL, ERROR_STR_INVALIDSTRING);
-        if (!strncasecmp("http://", tempString, strlen("http://"))) {
-          char *host = NULL;
-          char *url = NULL;
-          host = tempString + strlen("http://");
-          url = index(host, '/');
-          if (url != NULL)
-            *url = '\0';
-          if (index(host, ':') == NULL) {
-            int idnResult =
-                idn2_lookup_u8((uint8_t *)host, (uint8_t **)&host, 0);
-            if (host != NULL && idnResult == IDN2_OK) {
-              if (url == NULL)
-                url = "/";
-              else {
-                *url = '/';
-                char *sharp = index(url, '#');
-                if (sharp != NULL)
-                  *sharp = '\0';
-                DecodeURL(url);
-              }
-              LowerStringCase(host);
-              if (pfHashSet(hashTables[NETFILTER_TYPE_HTTP], host, url) != true)
-                log_err(ERROR_STR_HASHERROR);
-              else
-                httpURLFound = true;
-              free(host);
-            }
-          }
-        }
-      } else if (!xmlStrcmp(nodeChld->name, BAD_CAST "domain")) {
-        check(tempString != NULL, ERROR_STR_INVALIDSTRING);
-        if (httpURLFound == false) {
-          char *host = NULL;
-          int idnResult =
-              idn2_lookup_u8((uint8_t *)tempString, (uint8_t **)&host, 0);
-          if (host != NULL && idnResult == IDN2_OK) {
-            if (makeNSLookup == true) {
-              MakeNSLookup(host, hashTables[NETFILTER_TYPE_IP]);
-            }
-            uint8_t *dnsNotation = String2DNSNotation(host);
-            if (dnsNotation != NULL) {
-              if (pfHashSet(hashTables[NETFILTER_TYPE_DNS], (char *)dnsNotation,
-                            NULL) != true)
-                log_err(ERROR_STR_HASHERROR);
-              free(dnsNotation);
-            }
-          }
-          if (host != NULL)
-            free(host);
-        }
-      } else if (!xmlStrcmp(nodeChld->name, BAD_CAST "ip")) {
-        check(tempString != NULL, ERROR_STR_INVALIDSTRING);
-        if (httpURLFound == false) {
-          if (pfHashSet(hashTables[NETFILTER_TYPE_IP], tempString, NULL) !=
-              true) {
-            log_err(ERROR_STR_HASHERROR);
-          }
-        }
-      } else if (!xmlStrcmp(nodeChld->name, BAD_CAST "ipSubnet")) {
-        check(tempString != NULL, ERROR_STR_INVALIDSTRING);
-        if (httpURLFound == false) {
-          if (pfHashSet(hashTables[NETFILTER_TYPE_IP], tempString, NULL) !=
-              true) {
-            log_err(ERROR_STR_HASHERROR);
-          }
+    if (!rootSeen) {
+      if (nodeType != XML_READER_TYPE_ELEMENT)
+        continue;
+      rootSeen = true;
+      rootDepth = depth;
+      if (timestampFile != NULL) {
+        check(access(timestampFile, W_OK) == 0, ERROR_STR_INVALIDINPUT);
+        updateTime =
+            xmlTextReaderGetAttribute(reader, BAD_CAST "updateTime");
+        check(updateTime != NULL && updateTime[0] != '\0',
+              ERROR_STR_INVALIDXML);
+      }
+      continue;
+    }
+
+    if (!inRecord) {
+      if (nodeType == XML_READER_TYPE_ELEMENT && depth == rootDepth + 1) {
+        inRecord = true;
+        recordDepth = depth;
+        if (xmlTextReaderIsEmptyElement(reader) == 1) {
+          ProcessRegisterRecord(&record, makeNSLookup, hashTables);
+          ClearRegisterRecord(&record);
+          inRecord = false;
+          recordDepth = -1;
         }
       }
-      if (nodeVal != NULL) {
-        xmlFree(nodeVal);
-        nodeVal = NULL;
+      continue;
+    }
+
+    if (fieldType != REGISTER_FIELD_NONE) {
+      if ((nodeType == XML_READER_TYPE_TEXT ||
+           nodeType == XML_READER_TYPE_CDATA ||
+           nodeType == XML_READER_TYPE_WHITESPACE ||
+           nodeType == XML_READER_TYPE_SIGNIFICANT_WHITESPACE) &&
+          depth > fieldDepth) {
+        const xmlChar *value = xmlTextReaderConstValue(reader);
+        if (value != NULL)
+          check(AppendRegisterText(&fieldText, value), ERROR_STR_INVALIDSTRING);
+      } else if (nodeType == XML_READER_TYPE_END_ELEMENT &&
+                 depth == fieldDepth) {
+        check(AddRegisterField(&record, fieldType, &fieldText),
+              ERROR_STR_INVALIDSTRING);
+        fieldType = REGISTER_FIELD_NONE;
+        fieldDepth = -1;
       }
+      continue;
+    }
+
+    if (nodeType == XML_READER_TYPE_ELEMENT && depth == recordDepth + 1) {
+      fieldType = RegisterFieldType(xmlTextReaderConstLocalName(reader));
+      if (fieldType != REGISTER_FIELD_NONE) {
+        fieldDepth = depth;
+        if (xmlTextReaderIsEmptyElement(reader) == 1) {
+          check(AddRegisterField(&record, fieldType, &fieldText),
+                ERROR_STR_INVALIDSTRING);
+          fieldType = REGISTER_FIELD_NONE;
+          fieldDepth = -1;
+        }
+      }
+      continue;
+    }
+
+    if (nodeType == XML_READER_TYPE_END_ELEMENT && depth == recordDepth) {
+      ProcessRegisterRecord(&record, makeNSLookup, hashTables);
+      ClearRegisterRecord(&record);
+      inRecord = false;
+      recordDepth = -1;
     }
   }
+  check(readResult == 0 && rootSeen && !inRecord &&
+            fieldType == REGISTER_FIELD_NONE,
+        ERROR_STR_INVALIDXML);
+  check(WriteRegisterTimestamp(updateTime, timestampFile), ERROR_STR_FILEFAIL);
   result = true;
+
 error:
-  if (tmpFile != NULL)
-    fclose(tmpFile);
-  if (nodeVal != NULL)
-    xmlFree(nodeVal);
-  if (doc != NULL)
-    xmlFreeDoc(doc);
+  ClearRegisterText(&fieldText);
+  ClearRegisterRecord(&record);
+  if (reader != NULL)
+    xmlFreeTextReader(reader);
+  if (updateTime != NULL)
+    xmlFree(updateTime);
   return result;
+}
+
+static pfHashTable **CreateStagingHashTables(pfHashTable **destination) {
+  pfHashTable **staging = NULL;
+
+  if (destination == NULL)
+    return NULL;
+  staging = calloc(NETFILTER_TYPE_COUNT, sizeof(*staging));
+  if (staging == NULL)
+    return NULL;
+  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
+    if (destination[i] == NULL || destination[i]->numEntries == 0)
+      goto error;
+    staging[i] =
+        pfHashCreate(destination[i]->fn, destination[i]->numEntries);
+    if (staging[i] == NULL)
+      goto error;
+  }
+  return staging;
+
+error:
+  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++)
+    pfHashDestroy(staging[i]);
+  free(staging);
+  return NULL;
+}
+
+static void DestroyHashTables(pfHashTable **hashTables) {
+  if (hashTables == NULL)
+    return;
+  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
+    pfHashDestroy(hashTables[i]);
+    hashTables[i] = NULL;
+  }
+  free(hashTables);
+}
+
+/*
+ * Move every source node into destination without allocating. Source remains
+ * owned by its caller, but is empty afterwards. Duplicate keys retain the
+ * destination node and take ownership of any source values not already there.
+ */
+static void MoveHashEntries(pfHashTable *destination, pfHashTable *source) {
+  if (destination == NULL || source == NULL || destination == source ||
+      destination->numEntries == 0)
+    return;
+
+  for (uint32_t i = 0; i < source->numEntries; i++) {
+    while (source->lookup[i] != NULL) {
+      pfHashNode *sourceNode = source->lookup[i];
+      pfHashNode *destinationNode = NULL;
+      uint32_t hash = destination->fn(sourceNode->key);
+      uint32_t entry = hash % destination->numEntries;
+
+      source->lookup[i] = sourceNode->next;
+      for (destinationNode = destination->lookup[entry];
+           destinationNode != NULL; destinationNode = destinationNode->next) {
+        if (destinationNode->hash == hash &&
+            strcmp(destinationNode->key, sourceNode->key) == 0)
+          break;
+      }
+
+      if (destinationNode == NULL) {
+        sourceNode->hash = hash;
+        sourceNode->next = destination->lookup[entry];
+        destination->lookup[entry] = sourceNode;
+        continue;
+      }
+
+      while (sourceNode->data != NULL) {
+        TStringList *value = sourceNode->data;
+        sourceNode->data = value->next;
+        if (StringListFind(destinationNode->data, value->value)) {
+          free(value->value);
+          free(value);
+        } else {
+          value->next = destinationNode->data;
+          destinationNode->data = value;
+        }
+      }
+      free(sourceNode->key);
+      free(sourceNode);
+    }
+  }
+}
+
+static void MoveStagedHashTables(pfHashTable **destination,
+                                 pfHashTable **staging) {
+  if (destination == NULL || staging == NULL)
+    return;
+  for (int i = 0; i < NETFILTER_TYPE_COUNT; i++)
+    MoveHashEntries(destination[i], staging[i]);
 }
 
 pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
@@ -253,15 +589,7 @@ pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
   TrimUnusedHeap();
   return result;
 error:
-  if (result != NULL) {
-    for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-      if (result[i] != NULL) {
-        pfHashDestroy(result[i]);
-        result[i] = NULL;
-      }
-    }
-    free(result);
-  }
+  DestroyHashTables(result);
   if (zipFile != NULL)
     zip_fclose(zipFile);
   if (zipArchive != NULL)
@@ -277,21 +605,30 @@ error:
 bool ProcessRegisterCustomBlacklist(bool makeNSLookup, char *customBlackList,
                                     pfHashTable **result) {
   bool exitCode = false;
+  int closeResult = -1;
   int customFD = -1;
+  pfHashTable **staging = NULL;
+
   if (customBlackList != NULL) {
     check(access(customBlackList, R_OK) == 0, ERROR_STR_INVALIDINPUT);
-    check((customFD = open(customBlackList, O_RDONLY)) != -1,
+    check((customFD = open(customBlackList, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)) !=
+              -1,
           ERROR_STR_FILEFAIL);
+    staging = CreateStagingHashTables(result);
+    check_mem(staging);
     check(ParseRegisterXml(FDReadCallback, &customFD, makeNSLookup, NULL,
-                           result) == true,
+                           staging) == true,
           ERROR_STR_INVALIDXML);
-    close(customFD);
+    closeResult = close(customFD);
     customFD = -1;
+    check(closeResult == 0, ERROR_STR_FILEFAIL);
+    MoveStagedHashTables(result, staging);
   }
   exitCode = true;
 error:
   if (customFD != -1)
     close(customFD);
+  DestroyHashTables(staging);
   if (customBlackList != NULL)
     TrimUnusedHeap();
   return exitCode;
