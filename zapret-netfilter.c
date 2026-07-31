@@ -42,10 +42,12 @@ static int NetfilterCallback(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
     /*************************************************************************
      * Обрабатываем пакет и выносим вердикт.                          *
      *************************************************************************/
-    if (payload != NULL && ph != NULL && payloadCount > 0 && hwAddr != NULL) {
+    if (payload != NULL && ph != NULL && payloadCount > 0 && hwAddr != NULL &&
+        be16toh(hwAddr->hw_addrlen) >= ETH_ALEN) {
       TNetfilterContext *threadData = (TNetfilterContext *)data;
-      dropPacket = threadData->nfqParseCallback(payload, payloadCount,
-                                                threadData, hwAddr->hw_addr);
+      if (threadData->nfqParseCallback != NULL)
+        dropPacket = threadData->nfqParseCallback(
+            payload, (size_t)payloadCount, threadData, hwAddr->hw_addr);
     }
     if (ph != NULL) {
       result = nfq_set_verdict(qh, be32toh(ph->packet_id),
@@ -77,14 +79,24 @@ static void *NetfilterThread(void *data) {
    * Получаем дескриптор для чтения пакетов.                                *
    *************************************************************************/
   nfqFD = nfq_fd(threadData->nfqHandle);
+  check(nfqFD >= 0, ERROR_STR_SOCKETERROR);
   while ((flagMatrixShutdown == 0) && (flagMatrixReconfigure == 0) &&
          (flagMatrixReload == 0)) {
     /*************************************************************************
      * Читаем и отправляем пакеты на обработку.                               *
      *************************************************************************/
     bytesRcvd = recv(nfqFD, buf, NFQ_BUFFER_SIZE, 0);
-    if (bytesRcvd >= 0)
-      nfq_handle_packet(threadData->nfqHandle, buf, bytesRcvd);
+    if (bytesRcvd < 0 && errno == EINTR)
+      continue;
+    if (bytesRcvd <= 0) {
+      if (bytesRcvd < 0)
+        log_err(ERROR_STR_SOCKETERROR);
+      break;
+    }
+    if (nfq_handle_packet(threadData->nfqHandle, buf, (int)bytesRcvd) < 0) {
+      log_err(ERROR_STR_INVALIDPACKET);
+      break;
+    }
   }
 error:
   return NULL;
@@ -101,12 +113,27 @@ TNetfilterContext **InitNetfilterConfiguration(size_t count,
   struct addrinfo *aiResult = NULL;
   struct ifreq ifr;
   TNetfilterContext **result = NULL;
+  size_t redirectHostLength = 0;
+  size_t redirectPayloadLength = 0;
+  int interfaceLength = 0;
 
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
-  check(count > 0 && redirectIface != NULL && redirectHost != NULL,
+  check(count > 0 && redirectIface != NULL && redirectHost != NULL &&
+            (threadType == NETFILTER_TYPE_DNS ||
+             threadType == NETFILTER_TYPE_HTTP) &&
+            netfilterQueue <= UINT16_MAX &&
+            count - 1 <= UINT16_MAX - netfilterQueue,
         ERROR_STR_INVALIDINPUT);
+  redirectHostLength = strlen(redirectHost);
+  if (threadType == NETFILTER_TYPE_HTTP) {
+    redirectPayloadLength = sizeof(struct tcphdr) + IP4_HDRLEN +
+                            strlen(REDIRECT_PAYLOAD1) +
+                            strlen(REDIRECT_PAYLOAD2);
+    check(redirectHostLength <= NFQ_BUFFER_SIZE - redirectPayloadLength,
+          ERROR_STR_TOOLONG);
+  }
 
   /*************************************************************************
    * Выделяем память под массив структур данных потоков фильтации.          *
@@ -118,12 +145,15 @@ TNetfilterContext **InitNetfilterConfiguration(size_t count,
    * Инициализируем структуру привязки к интерфейсу.                        *
    *************************************************************************/
   memset(&ifr, 0, sizeof(ifr));
-  check(snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", redirectIface) > 0,
+  interfaceLength =
+      snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", redirectIface);
+  check(interfaceLength > 0 && (size_t)interfaceLength < sizeof(ifr.ifr_name),
         ERROR_STR_INVALIDSTRING);
 
   for (size_t i = 0; i < count; i++) {
     result[i] = calloc(1, sizeof(TNetfilterContext));
     check_mem(result[i]);
+    result[i]->redirectSocket = -1;
 
     result[i]->redirectSocket = socket(PF_PACKET, SOCK_DGRAM, htons(ETH_P_IP));
     check(result[i]->redirectSocket >= 0, ERROR_STR_SOCKETERROR);
@@ -182,6 +212,9 @@ TNetfilterContext **InitNetfilterConfiguration(size_t count,
       aiHints.ai_next = NULL;
       check(getaddrinfo(redirectHost, NULL, &aiHints, &aiResult) == 0,
             ERROR_STR_NSERROR);
+      check(aiResult != NULL && aiResult->ai_addr != NULL &&
+                aiResult->ai_addrlen >= sizeof(struct sockaddr_in),
+            ERROR_STR_NSERROR);
       struct sockaddr_in *saddr = (struct sockaddr_in *)aiResult->ai_addr;
 
       TDNSAnswer *dnsAns =
@@ -199,16 +232,15 @@ TNetfilterContext **InitNetfilterConfiguration(size_t count,
     } else if (threadType == NETFILTER_TYPE_HTTP) {
       result[i]->nfqParseCallback = ProcessRawPacketHTTP;
       result[i]->redirectDataLen =
-          strlen(redirectHost) + sizeof(struct tcphdr) + IP4_HDRLEN +
-          strlen(REDIRECT_PAYLOAD1) + strlen(REDIRECT_PAYLOAD2);
+          redirectHostLength + redirectPayloadLength;
       memcpy(result[i]->redirectNetworkPacket + sizeof(struct tcphdr) +
                  IP4_HDRLEN,
              REDIRECT_PAYLOAD1, strlen(REDIRECT_PAYLOAD1));
       memcpy(result[i]->redirectNetworkPacket + sizeof(struct tcphdr) +
                  IP4_HDRLEN + strlen(REDIRECT_PAYLOAD1),
-             redirectHost, strlen(redirectHost));
+             redirectHost, redirectHostLength);
       memcpy(result[i]->redirectNetworkPacket + sizeof(struct tcphdr) +
-                 IP4_HDRLEN + strlen(REDIRECT_PAYLOAD1) + strlen(redirectHost),
+                 IP4_HDRLEN + strlen(REDIRECT_PAYLOAD1) + redirectHostLength,
              REDIRECT_PAYLOAD2, strlen(REDIRECT_PAYLOAD2));
     }
   }

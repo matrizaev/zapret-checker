@@ -23,6 +23,8 @@ rutoken-sign
 /tests/test_raw_http-sanitize
 /tests/test_raw_dns
 /tests/test_raw_dns-sanitize
+/tests/test_netfilter
+/tests/test_netfilter-sanitize
 /zapret-soap-capture/
 .vscode/
 /request.xml

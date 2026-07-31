@@ -11,6 +11,7 @@ CONFIGURATION_TEST_TARGET = tests/test_configuration
 HTTP_TRANSPORT_TEST_TARGET = tests/test_http_transport
 RAW_HTTP_TEST_TARGET = tests/test_raw_http
 RAW_DNS_TEST_TARGET = tests/test_raw_dns
+NETFILTER_TEST_TARGET = tests/test_netfilter
 TEST_SANITIZER_TARGET = tests/test_core-sanitize
 SOAP_TEST_SANITIZER_TARGET = tests/test_soap-sanitize
 SOAP_INTERACTION_TEST_SANITIZER_TARGET = tests/test_soap_interaction-sanitize
@@ -20,6 +21,7 @@ CONFIGURATION_TEST_SANITIZER_TARGET = tests/test_configuration-sanitize
 HTTP_TRANSPORT_TEST_SANITIZER_TARGET = tests/test_http_transport-sanitize
 RAW_HTTP_TEST_SANITIZER_TARGET = tests/test_raw_http-sanitize
 RAW_DNS_TEST_SANITIZER_TARGET = tests/test_raw_dns-sanitize
+NETFILTER_TEST_SANITIZER_TARGET = tests/test_netfilter-sanitize
 SOAP_TEST_FIXTURES = tests/fixtures/soap/README.md $(wildcard tests/fixtures/soap/*.xml)
 REGISTER_TEST_FIXTURES = tests/fixtures/register/README.md $(wildcard tests/fixtures/register/*.xml) tests/fixtures/register/blacklist.zip.base64
 CONFIGURATION_TEST_FIXTURES = tests/fixtures/configuration/README.md $(wildcard tests/fixtures/configuration/*.xml)
@@ -34,6 +36,7 @@ DOWNLOAD_LDFLAGS = `xml2-config --libs` `curl-config --libs` `pkg-config --libs 
 TEST_CFLAGS = -g -O0 -Wall -Wextra -std=gnu99 -I. `xml2-config --cflags` `curl-config --cflags`
 TEST_LDFLAGS = `xml2-config --libs` `curl-config --libs`
 SANITIZER_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
+NETFILTER_WRAP_FLAGS = -Wl,--wrap=socket -Wl,--wrap=ioctl -Wl,--wrap=setsockopt -Wl,--wrap=close -Wl,--wrap=getaddrinfo -Wl,--wrap=freeaddrinfo -Wl,--wrap=recv -Wl,--wrap=pthread_create -Wl,--wrap=pthread_kill -Wl,--wrap=pthread_cancel -Wl,--wrap=pthread_join
 CC = gcc
 
 .PHONY: all benchmark test test-sanitize clean install uninstall
@@ -61,7 +64,7 @@ zapret-configuration.h.include: zapret-checker.xsd
 
 zapret-checker.o zapret-process.o: zapret-structures.h
 
-test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET)
+test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(NETFILTER_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(SOAP_TEST_TARGET)
 	./$(SOAP_INTERACTION_TEST_TARGET)
@@ -71,6 +74,7 @@ test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_
 	./$(HTTP_TRANSPORT_TEST_TARGET)
 	./$(RAW_HTTP_TEST_TARGET)
 	./$(RAW_DNS_TEST_TARGET)
+	./$(NETFILTER_TEST_TARGET)
 
 $(TEST_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) -o $(TEST_TARGET)
@@ -99,7 +103,10 @@ $(RAW_HTTP_TEST_TARGET): tests/test_raw_http.c tests/vendor/munit/munit.c tests/
 $(RAW_DNS_TEST_TARGET): tests/test_raw_dns.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-rawDNS.c zapret-checker.h zapret-structures.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) tests/test_raw_dns.c tests/vendor/munit/munit.c zapret-rawDNS.c util.c pfhash.c $(TEST_LDFLAGS) -Wl,--wrap=sendto -o $(RAW_DNS_TEST_TARGET)
 
-test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET)
+$(NETFILTER_TEST_TARGET): tests/test_netfilter.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-netfilter.c zapret-checker.h zapret-structures.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) tests/test_netfilter.c tests/vendor/munit/munit.c zapret-netfilter.c pfhash.c $(TEST_LDFLAGS) -lpthread $(NETFILTER_WRAP_FLAGS) -o $(NETFILTER_TEST_TARGET)
+
+test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(NETFILTER_TEST_SANITIZER_TARGET)
 	./$(TEST_SANITIZER_TARGET)
 	./$(SOAP_TEST_SANITIZER_TARGET)
 	./$(SOAP_INTERACTION_TEST_SANITIZER_TARGET)
@@ -109,6 +116,7 @@ test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INT
 	./$(HTTP_TRANSPORT_TEST_SANITIZER_TARGET)
 	./$(RAW_HTTP_TEST_SANITIZER_TARGET)
 	./$(RAW_DNS_TEST_SANITIZER_TARGET)
+	./$(NETFILTER_TEST_SANITIZER_TARGET)
 
 $(TEST_SANITIZER_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) $(SANITIZER_FLAGS) -o $(TEST_SANITIZER_TARGET)
@@ -137,8 +145,11 @@ $(RAW_HTTP_TEST_SANITIZER_TARGET): tests/test_raw_http.c tests/vendor/munit/muni
 $(RAW_DNS_TEST_SANITIZER_TARGET): tests/test_raw_dns.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-rawDNS.c zapret-checker.h zapret-structures.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_raw_dns.c tests/vendor/munit/munit.c zapret-rawDNS.c util.c pfhash.c $(TEST_LDFLAGS) -Wl,--wrap=sendto $(SANITIZER_FLAGS) -o $(RAW_DNS_TEST_SANITIZER_TARGET)
 
+$(NETFILTER_TEST_SANITIZER_TARGET): tests/test_netfilter.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-netfilter.c zapret-checker.h zapret-structures.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_netfilter.c tests/vendor/munit/munit.c zapret-netfilter.c pfhash.c $(TEST_LDFLAGS) -lpthread $(NETFILTER_WRAP_FLAGS) $(SANITIZER_FLAGS) -o $(NETFILTER_TEST_SANITIZER_TARGET)
+
 clean:
-	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(HASH_BENCHMARK_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
+	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(HASH_BENCHMARK_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(NETFILTER_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(NETFILTER_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
 
 install:
 	install $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(PREFIX)/bin
