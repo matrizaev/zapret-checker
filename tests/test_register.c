@@ -164,6 +164,12 @@ static MunitResult TestBase64ZipRegister(
 
   tables = ProcessRegisterZipArchive(encodedArchive, false, NULL);
   munit_assert_not_null(tables);
+  munit_assert_uint32(tables[NETFILTER_TYPE_HTTP]->numEntries, ==,
+                      ZAPRET_HTTP_HASH_BUCKET_COUNT);
+  munit_assert_uint32(tables[NETFILTER_TYPE_DNS]->numEntries, ==,
+                      ZAPRET_DNS_HASH_BUCKET_COUNT);
+  munit_assert_uint32(tables[NETFILTER_TYPE_IP]->numEntries, ==,
+                      ZAPRET_IP_HASH_BUCKET_COUNT);
   AssertSanitizedRegisterContents(tables);
 
   DestroyHashTables(tables);

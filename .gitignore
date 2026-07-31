@@ -4,6 +4,7 @@ zapret-configuration.h.include
 zapret-checker
 zapret-download
 rutoken-sign
+/zapret-hash-benchmark
 /tests/test_core
 /tests/test_core-sanitize
 /tests/test_soap

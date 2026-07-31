@@ -272,7 +272,8 @@ int main(int argc, char *argv[]) {
        * Создаём хеш-таблицы. *
        *************************************************************************/
       for (size_t i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-        context.hashTables[i] = pfHashCreate(NULL, 15013);
+        context.hashTables[i] = pfHashCreate(
+            NULL, ZapretHashBucketCount((TNetfilterType)i));
         check_mem(context.hashTables[i]);
       }
 

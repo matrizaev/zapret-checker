@@ -1,6 +1,7 @@
 TARGET = zapret-checker
 DOWNLOAD_TARGET = zapret-download
 SIGN_TARGET = rutoken-sign
+HASH_BENCHMARK_TARGET = zapret-hash-benchmark
 TEST_TARGET = tests/test_core
 SOAP_TEST_TARGET = tests/test_soap
 SOAP_INTERACTION_TEST_TARGET = tests/test_soap_interaction
@@ -35,15 +36,20 @@ TEST_LDFLAGS = `xml2-config --libs` `curl-config --libs`
 SANITIZER_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
 CC = gcc
 
-.PHONY: all test test-sanitize clean install uninstall
+.PHONY: all benchmark test test-sanitize clean install uninstall
 
 all: $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET)
+
+benchmark: $(HASH_BENCHMARK_TARGET)
 
 $(TARGET): zapret-configuration.h $(OBJS)
 	$(CC) $(OBJS) $(LDFLAGS_LOCAL) -o $(TARGET)
 
 $(DOWNLOAD_TARGET): $(DOWNLOAD_OBJS)
 	$(CC) $(DOWNLOAD_OBJS) $(DOWNLOAD_LDFLAGS) -o $(DOWNLOAD_TARGET)
+
+$(HASH_BENCHMARK_TARGET): zapret-hash-benchmark.c zapret-process.c zapret-checker.h zapret-structures.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(CFLAGS_LOCAL) zapret-hash-benchmark.c zapret-process.c util.c pfhash.c $(DOWNLOAD_LDFLAGS) -o $(HASH_BENCHMARK_TARGET)
 
 zapret-configuration.h: zapret-configuration.h.include
 
@@ -52,6 +58,8 @@ zapret-configuration.h.include: zapret-checker.xsd
 
 %.o: %.c
 	$(CC) -c $(CFLAGS_LOCAL) $< -o $@
+
+zapret-checker.o zapret-process.o: zapret-structures.h
 
 test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET)
 	./$(TEST_TARGET)
@@ -130,7 +138,7 @@ $(RAW_DNS_TEST_SANITIZER_TARGET): tests/test_raw_dns.c tests/vendor/munit/munit.
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_raw_dns.c tests/vendor/munit/munit.c zapret-rawDNS.c util.c pfhash.c $(TEST_LDFLAGS) -Wl,--wrap=sendto $(SANITIZER_FLAGS) -o $(RAW_DNS_TEST_SANITIZER_TARGET)
 
 clean:
-	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
+	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(HASH_BENCHMARK_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
 
 install:
 	install $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(PREFIX)/bin

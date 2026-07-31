@@ -62,3 +62,51 @@ Use `--email-without-attachments` instead to send only the HTML notification.
 `--smtp-recipient` may be repeated. An SMTP URL such as
 `smtps://mail.example.net:465/` can be supplied when a scheme or custom port is
 required.
+
+## Blacklist hash-table benchmark
+
+Build the standalone benchmark with:
+
+```sh
+make benchmark
+```
+
+It loads an unpacked `blacklist.xml` through the production register parser and
+reports load time, resident and peak memory, collision-chain statistics, and
+sampled hit/miss query times for the HTTP, DNS, and IP tables. Run one bucket
+configuration per process so that peak-memory measurements remain independent:
+
+```sh
+./zapret-hash-benchmark \
+  --input zapret-soap-capture/blacklist.xml \
+  --buckets 15013 \
+  --queries 1000000
+```
+
+For example, compare several bucket counts with:
+
+```sh
+for buckets in 15013 60013 240007 960017; do
+  ./zapret-hash-benchmark \
+    --input zapret-soap-capture/blacklist.xml \
+    --buckets "$buckets" \
+    --queries 1000000
+done
+```
+
+The HTTP, DNS, and IP tables can also be sized independently. A later option
+overrides an earlier one. These measured sizes are also the benchmark and daemon
+defaults:
+
+```sh
+./zapret-hash-benchmark \
+  --input zapret-soap-capture/blacklist.xml \
+  --http-buckets 60013 \
+  --dns-buckets 2000003 \
+  --ip-buckets 240007
+```
+
+`estimated_bytes` counts requested table, node, key, and value storage but not
+allocator metadata. `post_parse_rss_kib` shows memory before glibc releases
+unused heap pages, while `trimmed_rss_kib` shows the live process footprint after
+`malloc_trim()`. `peak_rss_kib` also includes the parser's temporary DOM.

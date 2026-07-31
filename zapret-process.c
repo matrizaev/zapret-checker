@@ -211,7 +211,8 @@ pfHashTable **ProcessRegisterZipArchive(char *registerZipArchive,
   result = calloc(NETFILTER_TYPE_COUNT, sizeof(pfHashTable *));
   check_mem(result);
   for (int i = 0; i < NETFILTER_TYPE_COUNT; i++) {
-    result[i] = pfHashCreate(NULL, 15013);
+    result[i] =
+        pfHashCreate(NULL, ZapretHashBucketCount((TNetfilterType)i));
     check_mem(result[i]);
   }
   decodedZipArchive = Base64Decode(

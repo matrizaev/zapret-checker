@@ -51,6 +51,24 @@ typedef enum {
   NETFILTER_TYPE_COUNT
 } TNetfilterType;
 
+/* Measured with zapret-hash-benchmark against the 2026-07 blacklist capture. */
+#define ZAPRET_HTTP_HASH_BUCKET_COUNT 60013U
+#define ZAPRET_DNS_HASH_BUCKET_COUNT 2000003U
+#define ZAPRET_IP_HASH_BUCKET_COUNT 240007U
+
+static inline uint32_t ZapretHashBucketCount(TNetfilterType type) {
+  switch (type) {
+  case NETFILTER_TYPE_HTTP:
+    return ZAPRET_HTTP_HASH_BUCKET_COUNT;
+  case NETFILTER_TYPE_DNS:
+    return ZAPRET_DNS_HASH_BUCKET_COUNT;
+  case NETFILTER_TYPE_IP:
+    return ZAPRET_IP_HASH_BUCKET_COUNT;
+  default:
+    return 0;
+  }
+}
+
 /*************************************************************************
  * Контекст последнего SMTP взаимодействия.                               *
  *************************************************************************/
