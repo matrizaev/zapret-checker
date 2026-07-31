@@ -25,6 +25,12 @@ rutoken-sign
 /tests/test_raw_dns-sanitize
 /tests/test_netfilter
 /tests/test_netfilter-sanitize
+/tests/test_cleaning
+/tests/test_cleaning-sanitize
+/tests/test_smtp
+/tests/test_smtp-sanitize
+/tests/test_checker
+/tests/test_checker-sanitize
 /zapret-soap-capture/
 .vscode/
 /request.xml

@@ -19,6 +19,7 @@ extern bool ReadZapretConfiguration(TZapretContext *context,
                                     const char *configurationFile);
 
 extern void ClearSOAPContext(TSOAPContext *context);
+extern void ClearSMTPContext(TSMTPContext *context);
 extern void ClearNetfilterContext(TNetfilterContext **context,
                                   size_t contextCount);
 extern void ClearZapretContext(TZapretContext *context);

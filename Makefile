@@ -12,6 +12,9 @@ HTTP_TRANSPORT_TEST_TARGET = tests/test_http_transport
 RAW_HTTP_TEST_TARGET = tests/test_raw_http
 RAW_DNS_TEST_TARGET = tests/test_raw_dns
 NETFILTER_TEST_TARGET = tests/test_netfilter
+CLEANING_TEST_TARGET = tests/test_cleaning
+SMTP_TEST_TARGET = tests/test_smtp
+CHECKER_TEST_TARGET = tests/test_checker
 TEST_SANITIZER_TARGET = tests/test_core-sanitize
 SOAP_TEST_SANITIZER_TARGET = tests/test_soap-sanitize
 SOAP_INTERACTION_TEST_SANITIZER_TARGET = tests/test_soap_interaction-sanitize
@@ -22,6 +25,9 @@ HTTP_TRANSPORT_TEST_SANITIZER_TARGET = tests/test_http_transport-sanitize
 RAW_HTTP_TEST_SANITIZER_TARGET = tests/test_raw_http-sanitize
 RAW_DNS_TEST_SANITIZER_TARGET = tests/test_raw_dns-sanitize
 NETFILTER_TEST_SANITIZER_TARGET = tests/test_netfilter-sanitize
+CLEANING_TEST_SANITIZER_TARGET = tests/test_cleaning-sanitize
+SMTP_TEST_SANITIZER_TARGET = tests/test_smtp-sanitize
+CHECKER_TEST_SANITIZER_TARGET = tests/test_checker-sanitize
 SOAP_TEST_FIXTURES = tests/fixtures/soap/README.md $(wildcard tests/fixtures/soap/*.xml)
 REGISTER_TEST_FIXTURES = tests/fixtures/register/README.md $(wildcard tests/fixtures/register/*.xml) tests/fixtures/register/blacklist.zip.base64
 CONFIGURATION_TEST_FIXTURES = tests/fixtures/configuration/README.md $(wildcard tests/fixtures/configuration/*.xml)
@@ -37,6 +43,7 @@ TEST_CFLAGS = -g -O0 -Wall -Wextra -std=gnu99 -I. `xml2-config --cflags` `curl-c
 TEST_LDFLAGS = `xml2-config --libs` `curl-config --libs`
 SANITIZER_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
 NETFILTER_WRAP_FLAGS = -Wl,--wrap=socket -Wl,--wrap=ioctl -Wl,--wrap=setsockopt -Wl,--wrap=close -Wl,--wrap=getaddrinfo -Wl,--wrap=freeaddrinfo -Wl,--wrap=recv -Wl,--wrap=pthread_create -Wl,--wrap=pthread_kill -Wl,--wrap=pthread_cancel -Wl,--wrap=pthread_join
+CHECKER_WRAP_FLAGS = -Wl,--wrap=sigemptyset -Wl,--wrap=sigaction -Wl,--wrap=sleep -Wl,--wrap=pause -Wl,--wrap=time -Wl,--wrap=pipe -Wl,--wrap=fork -Wl,--wrap=fdopen -Wl,--wrap=close -Wl,--wrap=waitpid
 CC = gcc
 
 .PHONY: all benchmark test test-sanitize clean install uninstall
@@ -64,7 +71,7 @@ zapret-configuration.h.include: zapret-checker.xsd
 
 zapret-checker.o zapret-process.o: zapret-structures.h
 
-test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(NETFILTER_TEST_TARGET)
+test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(NETFILTER_TEST_TARGET) $(CLEANING_TEST_TARGET) $(SMTP_TEST_TARGET) $(CHECKER_TEST_TARGET)
 	./$(TEST_TARGET)
 	./$(SOAP_TEST_TARGET)
 	./$(SOAP_INTERACTION_TEST_TARGET)
@@ -75,6 +82,9 @@ test: $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_
 	./$(RAW_HTTP_TEST_TARGET)
 	./$(RAW_DNS_TEST_TARGET)
 	./$(NETFILTER_TEST_TARGET)
+	./$(CLEANING_TEST_TARGET)
+	./$(SMTP_TEST_TARGET)
+	./$(CHECKER_TEST_TARGET)
 
 $(TEST_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) -o $(TEST_TARGET)
@@ -106,7 +116,16 @@ $(RAW_DNS_TEST_TARGET): tests/test_raw_dns.c tests/vendor/munit/munit.c tests/ve
 $(NETFILTER_TEST_TARGET): tests/test_netfilter.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-netfilter.c zapret-checker.h zapret-structures.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) tests/test_netfilter.c tests/vendor/munit/munit.c zapret-netfilter.c pfhash.c $(TEST_LDFLAGS) -lpthread $(NETFILTER_WRAP_FLAGS) -o $(NETFILTER_TEST_TARGET)
 
-test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(NETFILTER_TEST_SANITIZER_TARGET)
+$(CLEANING_TEST_TARGET): tests/test_cleaning.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-cleaning.c zapret-checker.h zapret-structures.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) tests/test_cleaning.c tests/vendor/munit/munit.c zapret-cleaning.c pfhash.c $(TEST_LDFLAGS) -o $(CLEANING_TEST_TARGET)
+
+$(SMTP_TEST_TARGET): tests/test_smtp.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-smtp.c zapret-checker.h zapret-structures.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) tests/test_smtp.c tests/vendor/munit/munit.c zapret-smtp.c -o $(SMTP_TEST_TARGET)
+
+$(CHECKER_TEST_TARGET): tests/test_checker.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-checker.c zapret-checker.h zapret-structures.h pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) tests/test_checker.c tests/vendor/munit/munit.c `xml2-config --libs` $(CHECKER_WRAP_FLAGS) -o $(CHECKER_TEST_TARGET)
+
+test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(NETFILTER_TEST_SANITIZER_TARGET) $(CLEANING_TEST_SANITIZER_TARGET) $(SMTP_TEST_SANITIZER_TARGET) $(CHECKER_TEST_SANITIZER_TARGET)
 	./$(TEST_SANITIZER_TARGET)
 	./$(SOAP_TEST_SANITIZER_TARGET)
 	./$(SOAP_INTERACTION_TEST_SANITIZER_TARGET)
@@ -117,6 +136,9 @@ test-sanitize: $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INT
 	./$(RAW_HTTP_TEST_SANITIZER_TARGET)
 	./$(RAW_DNS_TEST_SANITIZER_TARGET)
 	./$(NETFILTER_TEST_SANITIZER_TARGET)
+	./$(CLEANING_TEST_SANITIZER_TARGET)
+	./$(SMTP_TEST_SANITIZER_TARGET)
+	./$(CHECKER_TEST_SANITIZER_TARGET)
 
 $(TEST_SANITIZER_TARGET): tests/test_core.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h util.c util.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_core.c tests/vendor/munit/munit.c util.c pfhash.c $(TEST_LDFLAGS) $(SANITIZER_FLAGS) -o $(TEST_SANITIZER_TARGET)
@@ -148,8 +170,17 @@ $(RAW_DNS_TEST_SANITIZER_TARGET): tests/test_raw_dns.c tests/vendor/munit/munit.
 $(NETFILTER_TEST_SANITIZER_TARGET): tests/test_netfilter.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-netfilter.c zapret-checker.h zapret-structures.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
 	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_netfilter.c tests/vendor/munit/munit.c zapret-netfilter.c pfhash.c $(TEST_LDFLAGS) -lpthread $(NETFILTER_WRAP_FLAGS) $(SANITIZER_FLAGS) -o $(NETFILTER_TEST_SANITIZER_TARGET)
 
+$(CLEANING_TEST_SANITIZER_TARGET): tests/test_cleaning.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-cleaning.c zapret-checker.h zapret-structures.h pfhash.c pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_cleaning.c tests/vendor/munit/munit.c zapret-cleaning.c pfhash.c $(TEST_LDFLAGS) $(SANITIZER_FLAGS) -o $(CLEANING_TEST_SANITIZER_TARGET)
+
+$(SMTP_TEST_SANITIZER_TARGET): tests/test_smtp.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-smtp.c zapret-checker.h zapret-structures.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_smtp.c tests/vendor/munit/munit.c zapret-smtp.c $(SANITIZER_FLAGS) -o $(SMTP_TEST_SANITIZER_TARGET)
+
+$(CHECKER_TEST_SANITIZER_TARGET): tests/test_checker.c tests/vendor/munit/munit.c tests/vendor/munit/munit.h zapret-checker.c zapret-checker.h zapret-structures.h pfhash.h allheaders.h dbg.h errorstrings.h
+	$(CC) $(TEST_CFLAGS) $(SANITIZER_FLAGS) tests/test_checker.c tests/vendor/munit/munit.c `xml2-config --libs` $(CHECKER_WRAP_FLAGS) $(SANITIZER_FLAGS) -o $(CHECKER_TEST_SANITIZER_TARGET)
+
 clean:
-	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(HASH_BENCHMARK_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(NETFILTER_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(NETFILTER_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
+	rm -rf $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(HASH_BENCHMARK_TARGET) $(TEST_TARGET) $(SOAP_TEST_TARGET) $(SOAP_INTERACTION_TEST_TARGET) $(SOAP_SCENARIO_TEST_TARGET) $(REGISTER_TEST_TARGET) $(CONFIGURATION_TEST_TARGET) $(HTTP_TRANSPORT_TEST_TARGET) $(RAW_HTTP_TEST_TARGET) $(RAW_DNS_TEST_TARGET) $(NETFILTER_TEST_TARGET) $(CLEANING_TEST_TARGET) $(SMTP_TEST_TARGET) $(CHECKER_TEST_TARGET) $(TEST_SANITIZER_TARGET) $(SOAP_TEST_SANITIZER_TARGET) $(SOAP_INTERACTION_TEST_SANITIZER_TARGET) $(SOAP_SCENARIO_TEST_SANITIZER_TARGET) $(REGISTER_TEST_SANITIZER_TARGET) $(CONFIGURATION_TEST_SANITIZER_TARGET) $(HTTP_TRANSPORT_TEST_SANITIZER_TARGET) $(RAW_HTTP_TEST_SANITIZER_TARGET) $(RAW_DNS_TEST_SANITIZER_TARGET) $(NETFILTER_TEST_SANITIZER_TARGET) $(CLEANING_TEST_SANITIZER_TARGET) $(SMTP_TEST_SANITIZER_TARGET) $(CHECKER_TEST_SANITIZER_TARGET) $(OBJS) zapret-download.o zapret-configuration.h.include
 
 install:
 	install $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET) $(PREFIX)/bin
