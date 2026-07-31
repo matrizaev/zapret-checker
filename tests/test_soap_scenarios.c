@@ -19,7 +19,10 @@ typedef enum {
   REPLAY_SOAP_FAULT,
   REPLAY_MALFORMED_SEND_RESPONSE,
   REPLAY_SEND_REJECTED,
-  REPLAY_RESULT_ERROR
+  REPLAY_RESULT_ERROR,
+  REPLAY_SOCIAL_PENDING,
+  REPLAY_SOCIAL_ERROR,
+  REPLAY_SOCIAL_TIMEOUT
 } TReplayScenario;
 
 typedef struct {
@@ -131,7 +134,11 @@ static const char *ExpectedMethod(void) {
     return "getLastDumpDateEx";
   if (replay.requests == 1)
     return "sendRequest";
-  if (replay.scenario == REPLAY_IMMEDIATE_RESULT && replay.requests == 3)
+  if (replay.requests >= 3 &&
+      (replay.scenario == REPLAY_IMMEDIATE_RESULT ||
+       replay.scenario == REPLAY_SOCIAL_PENDING ||
+       replay.scenario == REPLAY_SOCIAL_ERROR ||
+       replay.scenario == REPLAY_SOCIAL_TIMEOUT))
     return "getResultSocResources";
   return "getResult";
 }
@@ -145,10 +152,22 @@ static const char *ExpectedFixture(void) {
                : "send-request-response.xml";
   if (replay.scenario == REPLAY_RESULT_ERROR && replay.requests == 2)
     return "get-result-error-response.xml";
-  if (replay.scenario == REPLAY_IMMEDIATE_RESULT && replay.requests == 2)
+  if ((replay.scenario == REPLAY_IMMEDIATE_RESULT ||
+       replay.scenario == REPLAY_SOCIAL_PENDING ||
+       replay.scenario == REPLAY_SOCIAL_ERROR ||
+       replay.scenario == REPLAY_SOCIAL_TIMEOUT) &&
+      replay.requests == 2)
     return "get-result-complete-response.xml";
   if (replay.scenario == REPLAY_IMMEDIATE_RESULT && replay.requests == 3)
     return "get-social-result-response.xml";
+  if (replay.scenario == REPLAY_SOCIAL_PENDING && replay.requests == 3)
+    return "get-result-pending-response.xml";
+  if (replay.scenario == REPLAY_SOCIAL_PENDING && replay.requests == 4)
+    return "get-social-result-response.xml";
+  if (replay.scenario == REPLAY_SOCIAL_ERROR && replay.requests == 3)
+    return "get-result-error-response.xml";
+  if (replay.scenario == REPLAY_SOCIAL_TIMEOUT && replay.requests >= 3)
+    return "get-result-pending-response.xml";
   return "get-result-pending-response.xml";
 }
 
@@ -299,7 +318,7 @@ static MunitResult TestImmediateResult(
 
   munit_assert_false(outcome.validationFailed);
   munit_assert_size(outcome.requests, ==, 4);
-  munit_assert_size(outcome.sleeps, ==, 1);
+  munit_assert_size(outcome.sleeps, ==, 2);
   munit_assert_true(outcome.soapResult);
   munit_assert_true(outcome.blacklistReceived);
   munit_assert_true(outcome.socialReceived);
@@ -394,6 +413,56 @@ static MunitResult TestDocumentedResultErrorStopsPolling(
   return MUNIT_OK;
 }
 
+static MunitResult TestSocialResultIsPolledUntilReady(
+    const MunitParameter parameters[], void *fixture) {
+  TScenarioOutcome outcome = RunScenario(REPLAY_SOCIAL_PENDING);
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_false(outcome.validationFailed);
+  munit_assert_size(outcome.requests, ==, 5);
+  munit_assert_size(outcome.sleeps, ==, 3);
+  munit_assert_true(outcome.soapResult);
+  munit_assert_true(outcome.blacklistReceived);
+  munit_assert_true(outcome.socialReceived);
+  return MUNIT_OK;
+}
+
+static MunitResult TestSocialResultErrorStopsPolling(
+    const MunitParameter parameters[], void *fixture) {
+  TScenarioOutcome outcome = RunScenario(REPLAY_SOCIAL_ERROR);
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_false(outcome.validationFailed);
+  munit_assert_size(outcome.requests, ==, 4);
+  munit_assert_size(outcome.sleeps, ==, 2);
+  munit_assert_int(outcome.resultCode, ==, -18);
+  munit_assert_false(outcome.soapResult);
+  munit_assert_true(outcome.blacklistReceived);
+  munit_assert_false(outcome.socialReceived);
+  return MUNIT_OK;
+}
+
+static MunitResult TestSocialResultPollingTimesOut(
+    const MunitParameter parameters[], void *fixture) {
+  TScenarioOutcome outcome = RunScenario(REPLAY_SOCIAL_TIMEOUT);
+
+  (void)parameters;
+  (void)fixture;
+
+  munit_assert_false(outcome.validationFailed);
+  munit_assert_size(outcome.requests, ==, 53);
+  munit_assert_size(outcome.sleeps, ==, 51);
+  munit_assert_int(outcome.resultCode, ==, 0);
+  munit_assert_false(outcome.soapResult);
+  munit_assert_true(outcome.blacklistReceived);
+  munit_assert_false(outcome.socialReceived);
+  return MUNIT_OK;
+}
+
 static MunitTest SoapScenarioTests[] = {
     {"/no-update", TestNoUpdateStopsAfterDateCheck, NULL, NULL,
      MUNIT_TEST_OPTION_NONE, NULL},
@@ -411,6 +480,12 @@ static MunitTest SoapScenarioTests[] = {
      NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {"/documented-result-error", TestDocumentedResultErrorStopsPolling, NULL,
      NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/social-result-pending", TestSocialResultIsPolledUntilReady, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {"/social-result-error", TestSocialResultErrorStopsPolling, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
+    {"/social-result-timeout", TestSocialResultPollingTimesOut, NULL, NULL,
+     MUNIT_TEST_OPTION_NONE, NULL},
     {NULL, NULL, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
 };
 

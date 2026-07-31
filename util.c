@@ -310,10 +310,13 @@ void FillIPHeader(struct iphdr *ipHdr, uint32_t clientIP, uint32_t serverIP,
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb,
                                   void *userp) {
   char *tempBuffer = NULL;
-  size_t realSize = size * nmemb;
+  size_t realSize = 0;
 
   check(contents != NULL && userp != NULL, ERROR_STR_INVALIDINPUT);
   TMemoryStruct *mem = (TMemoryStruct *)userp;
+  check(size == 0 || nmemb <= SIZE_MAX / size, ERROR_STR_INVALIDINPUT);
+  realSize = size * nmemb;
+  check(realSize <= SIZE_MAX - mem->size, ERROR_STR_INVALIDINPUT);
   tempBuffer = realloc(mem->memory, mem->size + realSize);
   check_mem(tempBuffer);
   mem->memory = tempBuffer;
@@ -333,6 +336,7 @@ void *SendHTTPPost(const char *url, const void *payload, char *httpHeaders[],
 
   CURL *curlHandle = NULL;
   CURLcode curlResult = 0;
+  curl_off_t postSize = 0;
   long httpCode = 0;
   char *httpUserAgent = "libcurl-agent/1.0";
 
@@ -341,7 +345,13 @@ void *SendHTTPPost(const char *url, const void *payload, char *httpHeaders[],
   // puts("Request:");
   // printf("%.*s\n", (int)inputLength, payload);
 
-  check(url != NULL && outputLength != NULL && inputLength > 0,
+  if (outputLength != NULL)
+    *outputLength = 0;
+  check(url != NULL && payload != NULL && outputLength != NULL &&
+            inputLength > 0,
+        ERROR_STR_INVALIDINPUT);
+  postSize = (curl_off_t)inputLength;
+  check(postSize >= 0 && (uintmax_t)postSize == (uintmax_t)inputLength,
         ERROR_STR_INVALIDINPUT);
   buffer.memory = malloc(1);
   check_mem(buffer.memory);
@@ -363,8 +373,11 @@ void *SendHTTPPost(const char *url, const void *payload, char *httpHeaders[],
         curl_easy_strerror(curlResult));
   if (httpHeaders != NULL) {
     for (size_t i = 0; i < httpHeadersCount; i++) {
-      headerList = curl_slist_append(headerList, httpHeaders[i]);
-      check(headerList != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
+      struct curl_slist *newHeaderList = NULL;
+      check(httpHeaders[i] != NULL, ERROR_STR_INVALIDINPUT);
+      newHeaderList = curl_slist_append(headerList, httpHeaders[i]);
+      check(newHeaderList != NULL, ERROR_STR_LIBCURL, "curl_slist_append");
+      headerList = newHeaderList;
     }
   }
   curlResult = curl_easy_setopt(curlHandle, CURLOPT_USERAGENT, httpUserAgent);
@@ -378,7 +391,7 @@ void *SendHTTPPost(const char *url, const void *payload, char *httpHeaders[],
     check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
           curl_easy_strerror(curlResult));
     curlResult =
-        curl_easy_setopt(curlHandle, CURLOPT_POSTFIELDSIZE, inputLength);
+        curl_easy_setopt(curlHandle, CURLOPT_POSTFIELDSIZE_LARGE, postSize);
     check(curlResult == CURLE_OK, ERROR_STR_LIBCURL,
           curl_easy_strerror(curlResult));
   }

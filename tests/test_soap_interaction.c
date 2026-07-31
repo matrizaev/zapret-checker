@@ -312,7 +312,7 @@ static MunitResult TestPreparedInteractionReplay(
       preparedSignature, sizeof(preparedSignature));
 
   completed = !replay.failed && replay.exchange == REPLAY_EXCHANGE_COUNT &&
-              replay.sleeps == REPLAY_PENDING_COUNT + 1 &&
+              replay.sleeps == REPLAY_PENDING_COUNT + 2 &&
               context.soapContext != NULL &&
               context.soapContext->soapResult &&
               context.soapContext->resultCode == 1;

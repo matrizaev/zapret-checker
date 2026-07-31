@@ -544,10 +544,20 @@ bool GetResultSocResourcesResponse(TSOAPContext *context, const char *soapXml,
   xmlNodePtr node = NULL;
   xmlChar *nodeVal = NULL;
   bool exitCode = false;
+  bool resultCodeFound = false;
 
   check(soapXml != NULL && context != NULL && inputLength > 0,
         ERROR_STR_INVALIDINPUT);
 
+  if (context->resultResult != NULL) {
+    free(context->resultResult);
+    context->resultResult = NULL;
+  }
+  if (context->resultComment != NULL) {
+    free(context->resultComment);
+    context->resultComment = NULL;
+  }
+  context->resultCode = 0;
   if (context->socialZipArchive != NULL) {
     free(context->socialZipArchive);
     context->socialZipArchive = NULL;
@@ -577,6 +587,43 @@ bool GetResultSocResourcesResponse(TSOAPContext *context, const char *soapXml,
   for (node = node->children; node != NULL; node = node->next) {
     if (node->type != XML_ELEMENT_NODE)
       continue;
+    if (context->resultResult == NULL &&
+        !xmlStrcmp(node->name, BAD_CAST "result")) {
+      nodeVal = xmlNodeGetContent(node->xmlChildrenNode);
+      check(nodeVal != NULL, ERROR_STR_INVALIDXML);
+      char *trimmed = TrimWhiteSpaces((char *)nodeVal);
+      check(trimmed != NULL, ERROR_STR_INVALIDSTRING);
+      context->resultResult = strdup(trimmed);
+      check(context->resultResult != NULL, ERROR_STR_INVALIDSTRING);
+      xmlFree(nodeVal);
+      nodeVal = NULL;
+      continue;
+    }
+    if (context->resultComment == NULL &&
+        !xmlStrcmp(node->name, BAD_CAST "resultComment")) {
+      nodeVal = xmlNodeGetContent(node->xmlChildrenNode);
+      if (nodeVal != NULL) {
+        char *trimmed = TrimWhiteSpaces((char *)nodeVal);
+        check(trimmed != NULL, ERROR_STR_INVALIDSTRING);
+        context->resultComment = strdup(trimmed);
+        check(context->resultComment != NULL, ERROR_STR_INVALIDSTRING);
+        xmlFree(nodeVal);
+        nodeVal = NULL;
+      }
+      continue;
+    }
+    if (!xmlStrcmp(node->name, BAD_CAST "resultCode")) {
+      nodeVal = xmlNodeGetContent(node->xmlChildrenNode);
+      check(nodeVal != NULL, ERROR_STR_INVALIDXML);
+      char *trimmed = TrimWhiteSpaces((char *)nodeVal);
+      check(trimmed != NULL &&
+                ParseXMLInt(trimmed, &context->resultCode),
+            ERROR_STR_INVALIDSTRING);
+      resultCodeFound = true;
+      xmlFree(nodeVal);
+      nodeVal = NULL;
+      continue;
+    }
     if (context->socialZipArchive == NULL &&
         (!xmlStrcmp(node->name, BAD_CAST "registerZipArchive") ||
          !xmlStrcmp(node->name, BAD_CAST "registerZipArchiveSocResources") ||
@@ -592,7 +639,15 @@ bool GetResultSocResourcesResponse(TSOAPContext *context, const char *soapXml,
       continue;
     }
   }
-  check((context->socialZipArchive != NULL), ERROR_STR_INVALIDXML);
+  if (context->resultResult == NULL && !resultCodeFound &&
+      context->socialZipArchive != NULL) {
+    context->resultResult = strdup("true");
+    check(context->resultResult != NULL, ERROR_STR_INVALIDSTRING);
+    context->resultCode = 1;
+    resultCodeFound = true;
+  }
+  check(IsXMLBoolean(context->resultResult) && resultCodeFound,
+        ERROR_STR_INVALIDXML);
   exitCode = true;
 error:
   if (nodeVal != NULL)
@@ -954,25 +1009,46 @@ PerformSOAPCommunicationInternal(TZapretContext *context,
             context->soapContext->registerZipArchive != NULL,
         ERROR_STR_SOAP,
         soapMethods[SOAP_METHOD_getResultResponse]);
-  context->soapContext->soapResult = true;
+  repeatCount = 0;
+  context->soapContext->resultCode = 0;
+  while ((repeatCount < GET_RESULT_WAITING_COUNT) &&
+         (context->soapContext->resultCode == 0) && (flagMatrixShutdown == 0) &&
+         (flagMatrixReconfigure == 0)) {
+    log_info("SOAP: Sleeping before social-resource results");
+    sleep(context->blacklistCooldownNegative);
+    log_info("SOAP: getResultSocResources");
+    request = GenerateSOAPMessage(context->soapContext, NULL,
+                                  SOAP_METHOD_getResultSocResources, NULL,
+                                  &resultSize);
+    check(request != NULL, ERROR_STR_SOAP,
+          soapMethods[SOAP_METHOD_getResultSocResources]);
+    httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString(
+        context->blacklistHost, SOAP_METHOD_getResultSocResources);
+    check(httpHeaders[HTTP_HEADER_COUNT - 1] != NULL, ERROR_STR_INVALIDSTRING);
+    response = SendHTTPPost(soapService, (char *)request, httpHeaders,
+                            HTTP_HEADER_COUNT, resultSize, &resultSize);
+    check(response != NULL, ERROR_STR_SOAP,
+          soapMethods[SOAP_METHOD_getResultSocResourcesResponse]);
+    free(httpHeaders[HTTP_HEADER_COUNT - 1]);
+    httpHeaders[HTTP_HEADER_COUNT - 1] = NULL;
+    xmlFree(request);
+    request = NULL;
 
-  log_info("SOAP: getResultSocResources");
-  request = GenerateSOAPMessage(context->soapContext, NULL,
-                                SOAP_METHOD_getResultSocResources, NULL,
-                                &resultSize);
-  check(request != NULL, ERROR_STR_SOAP,
-        soapMethods[SOAP_METHOD_getResultSocResources]);
-  httpHeaders[HTTP_HEADER_COUNT - 1] = GenerateSoapActionString(
-      context->blacklistHost, SOAP_METHOD_getResultSocResources);
-  check(httpHeaders[HTTP_HEADER_COUNT - 1] != NULL, ERROR_STR_INVALIDSTRING);
-  response = SendHTTPPost(soapService, (char *)request, httpHeaders,
-                          HTTP_HEADER_COUNT, resultSize, &resultSize);
-  check(response != NULL, ERROR_STR_SOAP,
+    log_info("SOAP: getResultSocResourcesResponse");
+    check(GetResultSocResourcesResponse(context->soapContext, response,
+                                        resultSize) == true,
+          ERROR_STR_SOAP,
+          soapMethods[SOAP_METHOD_getResultSocResourcesResponse]);
+    free(response);
+    response = NULL;
+    repeatCount++;
+  }
+  check(XMLBooleanIsTrue(context->soapContext->resultResult) &&
+            context->soapContext->resultCode == 1 &&
+            context->soapContext->socialZipArchive != NULL,
+        ERROR_STR_SOAP,
         soapMethods[SOAP_METHOD_getResultSocResourcesResponse]);
-  log_info("SOAP: getResultSocResourcesResponse");
-  check(GetResultSocResourcesResponse(context->soapContext, response,
-                                      resultSize) == true,
-        ERROR_STR_SOAP, soapMethods[SOAP_METHOD_getResultSocResourcesResponse]);
+  context->soapContext->soapResult = true;
 
 error:
   if (response != NULL)
