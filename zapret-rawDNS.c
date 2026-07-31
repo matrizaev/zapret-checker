@@ -16,6 +16,7 @@
   (IP4_HDRLEN + sizeof(struct udphdr) + sizeof(TDNSHeader))
 #define DNS_PACKET_SIZE                                                        \
   (IP4_HDRLEN + sizeof(struct udphdr) + sizeof(TDNSHeader) + sizeof(TDNSAnswer))
+#define IPV4_FRAGMENT_MASK 0x3fff
 
 /*************************************************************************
  * Подготавливаем поддельный пакет.                                       *
@@ -100,7 +101,8 @@ static bool CheckDomain(const pfHashTable *domainTable, uint8_t *questionData,
   /*************************************************************************
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
-  if (questionData == NULL || domainTable == NULL || dataLen == 0)
+  if (questionData == NULL || domainTable == NULL || questionDataSize == NULL ||
+      dataLen == 0)
     return false;
 
   /*************************************************************************
@@ -157,8 +159,9 @@ bool ProcessRawPacketDNS(uint8_t *packet, size_t packetSize,
    * Проверка корректности входных параметров.                              *
    *************************************************************************/
 
-  if (packet == NULL || threadData == NULL ||
-      threadData->redirectNetworkPacket == NULL || packetSize < IP4_HDRLEN)
+  if (packet == NULL || threadData == NULL || threadData->hashTable == NULL ||
+      threadData->redirectNetworkPacket == NULL || hwAddr == NULL ||
+      packetSize < sizeof(struct iphdr))
     return false;
 
   struct iphdr *ipHdr = (struct iphdr *)(packet);
@@ -178,11 +181,11 @@ bool ProcessRawPacketDNS(uint8_t *packet, size_t packetSize,
     return false;
   if (ipHdr->protocol != IPPROTO_UDP)
     return false;
+  if ((be16toh(ipHdr->frag_off) & IPV4_FRAGMENT_MASK) != 0)
+    return false;
   if (totalLen < iphLen + sizeof(struct udphdr) + sizeof(TDNSHeader))
     return false;
   if (packetSize < totalLen)
-    return false;
-  if (packetSize < (size_t)iphLen + sizeof(struct udphdr))
     return false;
 
   /*************************************************************************
@@ -216,7 +219,7 @@ bool ProcessRawPacketDNS(uint8_t *packet, size_t packetSize,
   /*************************************************************************
    * Если DNS пакет не содержит простой запрос без фрагментации, выходим.   *
    *************************************************************************/
-  if (questionCount == 0 || dnsHdr->qr != 0 || dnsHdr->opcode != 0 ||
+  if (questionCount != 1 || dnsHdr->qr != 0 || dnsHdr->opcode != 0 ||
       dnsHdr->tc != 0)
     return false;
 
@@ -229,6 +232,10 @@ bool ProcessRawPacketDNS(uint8_t *packet, size_t packetSize,
    * Если запрос запрещён, подделываем ответ.                               *
    *************************************************************************/
   if (CheckDomain(threadData->hashTable, packet, dataLen, &questionDataSize)) {
+    if (questionDataSize > UINT16_MAX - DNS_PACKET_SIZE ||
+        threadData->redirectDataLen < DNS_PACKET_SIZE + questionDataSize)
+      return false;
+
     struct sockaddr_ll sin;
     memset(&sin, 0, sizeof(struct sockaddr_ll));
     sin.sll_family = AF_PACKET;
