@@ -2,7 +2,8 @@
 
 ## Project
 
-- This is a GNU99 C project built with `make`.
+- This is a GNU C23 project built with `make`. GCC 13 exposes its C23 mode
+  under the provisional `gnu2x` spelling; newer compilers use `gnu23`.
 - The main binaries are `zapret-checker`, `zapret-download`, and `rutoken-sign`.
 - Core code lives in the top-level `*.c` and `*.h` files. Treat `rutoken/` as third-party PKCS#11 headers; do not edit it unless the task specifically requires it.
 - `zapret-configuration.h.include` is generated from `zapret-checker.xsd`. Do not hand-edit the generated file.
@@ -50,7 +51,7 @@
 
   ```sh
   make clean
-  make CFLAGS_LOCAL="-g -O1 -Wall -Wextra -std=gnu99 -fsanitize=address,undefined -fno-omit-frame-pointer $(xml2-config --cflags) $(curl-config --cflags) $(pkg-config --cflags libzip)" \
+  make CFLAGS_LOCAL="-g -O1 -Wall -Wextra -std=gnu2x -fsanitize=address,undefined -fno-omit-frame-pointer $(xml2-config --cflags) $(curl-config --cflags) $(pkg-config --cflags libzip)" \
        LDFLAGS_LOCAL="-g -fsanitize=address,undefined -lnetfilter_queue $(xml2-config --libs) $(curl-config --libs) $(pkg-config --libs libzip) -ldl -lpthread -lidn2 -lm" \
        DOWNLOAD_LDFLAGS="-fsanitize=address,undefined $(xml2-config --libs) $(curl-config --libs) $(pkg-config --libs libzip) -ldl -lidn2"
   ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ./<affected-binary> <safe-test-arguments>

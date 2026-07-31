@@ -68,11 +68,20 @@ volatile sig_atomic_t flagMatrixReload = 0;
  * Обработчики сигналов SIGHUP, SIGTERM и SIGINT.                         *
  *************************************************************************/
 
-static void TerminateSignalHandler() { flagMatrixShutdown = 1; }
+static void TerminateSignalHandler(int signalNumber) {
+  (void)signalNumber;
+  flagMatrixShutdown = 1;
+}
 
-static void HupSignalHandler() { flagMatrixReconfigure = 1; }
+static void HupSignalHandler(int signalNumber) {
+  (void)signalNumber;
+  flagMatrixReconfigure = 1;
+}
 
-static void IntSignalHandler() { flagMatrixReload = 1; }
+static void IntSignalHandler(int signalNumber) {
+  (void)signalNumber;
+  flagMatrixReload = 1;
+}
 
 /*************************************************************************
  * Инициализация обработчиков сигналов.                                   *

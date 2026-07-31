@@ -4,6 +4,12 @@ to block blacklisted websites according to Russian law.
 The blacklist is retrieved from http://vigruzki.rkn.gov.ru/
 Written by Matrizaev Vyacheslav.
 
+## Build requirements
+
+The project is built as GNU C23. The Makefile selects `gnu23` on compilers
+which support the final spelling and falls back to GCC 13's provisional C23
+mode, `gnu2x`.
+
 ## Daemon configuration
 
 By default, the daemon reads

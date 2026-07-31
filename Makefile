@@ -35,20 +35,24 @@ REGISTER_TEST_FIXTURES = tests/fixtures/register/README.md $(wildcard tests/fixt
 CONFIGURATION_TEST_FIXTURES = tests/fixtures/configuration/README.md $(wildcard tests/fixtures/configuration/*.xml)
 CHECKER_COMPONENT_TEST_FIXTURES = tests/fixtures/soap/README.md tests/fixtures/soap/get-last-dump-date-response.xml tests/fixtures/soap/send-request-response.xml tests/fixtures/soap/get-social-result-response.xml tests/fixtures/register/README.md tests/fixtures/register/blacklist.zip.base64
 PREFIX ?=
+CC = gcc
+
+# GCC 14 and newer accept the final C23 spelling. GCC 13 exposes its C23
+# implementation under the provisional gnu2x name. Keep the GNU dialect
+# because the project uses Linux and GNU libc interfaces.
+C23_DIALECT := $(shell if $(CC) -std=gnu23 -E -x c /dev/null >/dev/null 2>&1; then echo gnu23; else echo gnu2x; fi)
 SRCS = zapret-checker.c zapret-soap.c zapret-smtp.c zapret-configuration.c zapret-process.c zapret-blacklist.c zapret-netfilter.c zapret-rawHTTP.c zapret-rawDNS.c zapret-cleaning.c util.c sign.c pfhash.c
 CFG = zapret-checker.xml custom.xml
 OBJS = $(SRCS:.c=.o)
 DOWNLOAD_OBJS = zapret-download.o zapret-soap.o zapret-smtp.o util.o sign.o
-CFLAGS_LOCAL = -g -O3 -Wall -Wextra -std=gnu99 `xml2-config --cflags` `curl-config --cflags` `pkg-config --cflags libzip`
+CFLAGS_LOCAL = -g -O3 -Wall -Wextra -std=$(C23_DIALECT) `xml2-config --cflags` `curl-config --cflags` `pkg-config --cflags libzip`
 LDFLAGS_LOCAL = -g -lnetfilter_queue `xml2-config --libs` `curl-config --libs` `pkg-config --libs libzip` -ldl -lpthread -lidn2 -lm
 DOWNLOAD_LDFLAGS = `xml2-config --libs` `curl-config --libs` `pkg-config --libs libzip` -ldl -lidn2
-TEST_CFLAGS = -g -O0 -Wall -Wextra -std=gnu99 -I. `xml2-config --cflags` `curl-config --cflags`
+TEST_CFLAGS = -g -O0 -Wall -Wextra -std=$(C23_DIALECT) -I. `xml2-config --cflags` `curl-config --cflags`
 TEST_LDFLAGS = `xml2-config --libs` `curl-config --libs`
 SANITIZER_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer
 NETFILTER_WRAP_FLAGS = -Wl,--wrap=socket -Wl,--wrap=ioctl -Wl,--wrap=setsockopt -Wl,--wrap=close -Wl,--wrap=getaddrinfo -Wl,--wrap=freeaddrinfo -Wl,--wrap=recv -Wl,--wrap=pthread_create -Wl,--wrap=pthread_kill -Wl,--wrap=pthread_cancel -Wl,--wrap=pthread_join
 CHECKER_WRAP_FLAGS = -Wl,--wrap=sigemptyset -Wl,--wrap=sigaction -Wl,--wrap=sleep -Wl,--wrap=pause -Wl,--wrap=time -Wl,--wrap=pipe -Wl,--wrap=fork -Wl,--wrap=fdopen -Wl,--wrap=close -Wl,--wrap=waitpid
-CC = gcc
-
 .PHONY: all benchmark test test-sanitize clean install uninstall
 
 all: $(TARGET) $(DOWNLOAD_TARGET) $(SIGN_TARGET)
@@ -211,4 +215,4 @@ uninstall:
 	rm -rf /etc/$(TARGET)/
 
 $(SIGN_TARGET): rutoken-sign.c sign.c sign.h
-	$(CC) rutoken-sign.c sign.c -ldl -o $(SIGN_TARGET)
+	$(CC) $(CFLAGS_LOCAL) rutoken-sign.c sign.c -ldl -o $(SIGN_TARGET)

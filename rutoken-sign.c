@@ -70,11 +70,14 @@ int main(int argc, char *argv[]) {
 
   check(fseek(input_file, 0, SEEK_END) != -1,
         "Could not seek inside the input file");
-  long input_file_size = ftell(input_file);
+  long input_file_offset = ftell(input_file);
+  check(input_file_offset >= 0 && (uintmax_t)input_file_offset <= SIZE_MAX,
+        "Could not determine the input file size");
+  size_t input_file_size = (size_t)input_file_offset;
   check(fseek(input_file, 0, SEEK_SET) != -1,
         "Could not seek inside the input file");
 
-  buffer = calloc(input_file_size, sizeof(uint8_t));
+  buffer = calloc(input_file_size == 0 ? 1 : input_file_size, sizeof(uint8_t));
   check_mem(buffer);
 
   check(fread(buffer, 1, input_file_size, input_file) == input_file_size,
@@ -82,7 +85,8 @@ int main(int argc, char *argv[]) {
 
   size_t signature_size = 0;
   signature =
-      SigningPerform(buffer, input_file_size, &signature_size, user_pin,
+      SigningPerform(buffer, input_file_size, &signature_size,
+                     (uint8_t *)user_pin,
                      strlen(user_pin), key_pair_id, key_pair_id_length, slot);
   check(signature != NULL, "Could not sign the input file");
   check(signature_size > 0, "Could not sign the input file");
