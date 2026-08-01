@@ -9,6 +9,9 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/xmlschemas.h>
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #include <time.h>
 
 #include "errorstrings.h"
@@ -16,6 +19,12 @@
 
 #define IP_DF 0x4000
 #define IP4_HDRLEN 20
+
+void TrimUnusedHeap(void) {
+#if defined(__GLIBC__)
+  (void)malloc_trim(0);
+#endif
+}
 
 static unsigned char gEncodingTable[] = {
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',

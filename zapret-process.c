@@ -6,9 +6,6 @@
 #include <arpa/inet.h>
 #include <idn2.h>
 #include <libxml/xmlreader.h>
-#if defined(__GLIBC__)
-#include <malloc.h>
-#endif
 #include <netdb.h>
 #include <netinet/in.h>
 #include <zip.h>
@@ -16,12 +13,6 @@
 #include "zapret-checker.h"
 
 #define DUMP_XML_FILENAME "dump.xml"
-
-static void TrimUnusedHeap(void) {
-#if defined(__GLIBC__)
-  (void)malloc_trim(0);
-#endif
-}
 
 static int ZipReadCallback(void *context, char *buffer, int len) {
   if (context == NULL || buffer == NULL || len <= 0)

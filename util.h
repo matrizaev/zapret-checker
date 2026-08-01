@@ -17,6 +17,8 @@ extern char *Base64Encode(const void *data, size_t inputLength,
 extern void Base64Cleanup();
 extern void *Base64Decode(const char *data, size_t inputLength,
                           size_t *outputLength);
+/* Requests that glibc return unused heap pages; a no-op on other libcs. */
+extern void TrimUnusedHeap(void);
 extern void DecodeURL(char *inputStr);
 extern void LowerStringCase(char *inputStr);
 extern uint16_t checksum(uint16_t *addr, size_t len);

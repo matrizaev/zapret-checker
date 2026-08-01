@@ -40,6 +40,7 @@ static bool shutdownDuringSOAP = false;
 static int failSigactionAt = -1;
 static size_t clearZapretCount = 0;
 static size_t clearSOAPCount = 0;
+static size_t heapTrimCount = 0;
 static size_t configurationCount = 0;
 static size_t hashCreateCount = 0;
 static size_t hashDestroyCount = 0;
@@ -91,6 +92,7 @@ static void ResetCheckerMocks(void) {
   failSigactionAt = -1;
   clearZapretCount = 0;
   clearSOAPCount = 0;
+  heapTrimCount = 0;
   configurationCount = 0;
   hashCreateCount = 0;
   hashDestroyCount = 0;
@@ -276,6 +278,11 @@ void ClearSOAPContext(TSOAPContext *context) {
   context->operatorINN = NULL;
   context->soapResult = false;
   context->resultCode = 0;
+}
+
+void TrimUnusedHeap(void) {
+  heapTrimCount++;
+  RecordEvent('Y');
 }
 
 void ClearZapretContext(TZapretContext *context) {
@@ -717,10 +724,11 @@ static MunitResult TestSOAPArchiveReplacement(
   munit_assert_size(stopCount, ==, 1);
   munit_assert_size(startCount, ==, 2);
   munit_assert_size(clearSOAPCount, ==, 1);
+  munit_assert_size(heapTrimCount, ==, 1);
   munit_assert_size(sleepCount, ==, 1);
   munit_assert_int64(lastSleep, ==, 7);
   munit_assert_size(pipeCount, ==, 2);
-  munit_assert_not_null(strstr(eventLog, "PMABTDDDSQ"));
+  munit_assert_not_null(strstr(eventLog, "PMABTDDDSQY"));
   return MUNIT_OK;
 }
 
